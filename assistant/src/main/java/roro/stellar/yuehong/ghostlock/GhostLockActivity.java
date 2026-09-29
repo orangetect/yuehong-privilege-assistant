@@ -2,6 +2,7 @@ package roro.stellar.yuehong.ghostlock;
 
 import roro.stellar.yuehong.R;
 import roro.stellar.yuehong.shell.GhostLockOtaApi;
+import java.io.ByteArrayOutputStream;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -94,6 +95,7 @@ public class GhostLockActivity extends ComponentActivity {
     private static final String KSU_ACTIVATION_ASSET = "yhroot_ksu_activate.sh";
     private static final String KSU_ACTIVATION_SCRIPT = ".ghostlock_root.sh";
     private static final String OFFSETS_JSON = "offsets.json";
+    private static final String PROFILE_ASSET_DIR = "kernel_profiles";
     private static final int REQ_IMPORT_OFFSETS = 1001;
     private static final int REQ_PICK_BOOT = 1002;
     private static final int REQ_PICK_XBL = 1003;
@@ -348,7 +350,11 @@ public class GhostLockActivity extends ComponentActivity {
                 return true;
             }
         }
-        return false;
+        try (InputStream ignored = getAssets().open(PROFILE_ASSET_DIR + "/" + version + ".bin")) {
+            return true;
+        } catch (IOException ignored) {
+            return false;
+        }
     }
 
     /** A kernel can run with an upstream built-in table or matching OTA offsets. */
@@ -1440,7 +1446,8 @@ public class GhostLockActivity extends ComponentActivity {
             try {
                 File workDir = getFilesDir();
                 File binary = resolveBinary();
-                code = runBinaryWithRetry(binary, workDir);
+                byte[] profile = resolveNativeProfile(workDir);
+                code = runBinaryWithRetry(binary, workDir, profile);
                 appendLog("exit code=" + code);
             } catch (Throwable t) {
                 appendLog("error: " + t.getClass().getSimpleName() + ": " + t.getMessage());
@@ -1497,8 +1504,47 @@ public class GhostLockActivity extends ComponentActivity {
         return out;
     }
 
-    private int runBinary(File binary, File workDir) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath());
+
+    private byte[] readAssetBytes(String name) throws IOException {
+        try (InputStream in = getAssets().open(name);
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            copyStream(in, out);
+            return out.toByteArray();
+        }
+    }
+
+    private byte[] resolveNativeProfile(File workDir) throws IOException {
+        String release = System.getProperty("os.version", "");
+        // Keep the existing source priority: a matching OTA import wins over
+        // the APK profile, so an explicitly parsed device profile is never
+        // silently replaced by a bundled table.
+        File offsets = new File(workDir, OFFSETS_JSON);
+        if (importedOffsetsMatch(release)) {
+            try {
+                byte[] json = java.nio.file.Files.readAllBytes(offsets.toPath());
+                byte[] profile = GhostLockProfileBridge.fromOffsetsJson(
+                        new String(json, StandardCharsets.UTF_8),
+                        release,
+                        cpuPairs.get(cpuPairIndex)[0],
+                        cpuPairs.get(cpuPairIndex)[1]);
+                appendLog("GLK1 imported profile ready: " + release);
+                return profile;
+            } catch (Throwable t) {
+                throw new IOException("cannot convert offsets.json to GLK1: " + t.getMessage(), t);
+            }
+        }
+        String asset = PROFILE_ASSET_DIR + "/" + release + ".bin";
+        try {
+            byte[] profile = readAssetBytes(asset);
+            appendLog("GLK1 built-in profile ready: " + release);
+            return profile;
+        } catch (IOException ignored) {
+            throw new IOException("no GLK1 profile for " + release);
+        }
+    }
+
+    private int runBinary(File binary, File workDir, byte[] profile) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath(), "--ghostlock-app-call");
         pb.directory(workDir);
         pb.redirectErrorStream(true);
         pb.environment().put("GHOSTLOCK_HOME", workDir.getAbsolutePath());
@@ -1510,7 +1556,7 @@ public class GhostLockActivity extends ComponentActivity {
             pb.environment().put("GHOSTLOCK_CORE", String.valueOf(pair[0]));
             pb.environment().put("GHOSTLOCK_CONSUMER_CORE", String.valueOf(pair[1]));
         }
-        return runProcess(pb);
+        return runProcess(pb, profile, 300);
     }
 
     /**
@@ -1518,7 +1564,7 @@ public class GhostLockActivity extends ComponentActivity {
      * pressure. Retry once in a fresh native process while keeping OTA
      * offsets and the selected CPU pair unchanged.
      */
-    private int runBinaryWithRetry(File binary, File workDir) throws IOException, InterruptedException {
+    private int runBinaryWithRetry(File binary, File workDir, byte[] profile) throws IOException, InterruptedException {
         int code = 1;
         for (int attempt = 1; attempt <= MAX_NATIVE_ATTEMPTS; attempt++) {
             File activationLog = new File(workDir, ".ghostlock_ksu.log");
@@ -1528,7 +1574,7 @@ public class GhostLockActivity extends ComponentActivity {
             File activationScript = prepareKsuActivationScript(workDir);
             appendLog("shared KernelSU activation script ready: " + activationScript.getName());
             appendLog("native attempt " + attempt + "/" + MAX_NATIVE_ATTEMPTS);
-            code = runBinary(binary, workDir);
+            code = runBinary(binary, workDir, profile);
             if (code == 0) {
                 return 0;
             }
@@ -1560,7 +1606,17 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     private int runProcess(ProcessBuilder pb, long timeoutSeconds) throws IOException, InterruptedException {
+        return runProcess(pb, null, timeoutSeconds);
+    }
+
+    private int runProcess(ProcessBuilder pb, byte[] stdin, long timeoutSeconds) throws IOException, InterruptedException {
         Process process = pb.start();
+        if (stdin != null) {
+            try (OutputStream output = process.getOutputStream()) {
+                output.write(stdin);
+                output.flush();
+            }
+        }
         Thread reader = new Thread(() -> {
             try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;

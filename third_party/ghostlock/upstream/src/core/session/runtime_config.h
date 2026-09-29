@@ -14,6 +14,8 @@ namespace ghostlock::config {
     public:
         int32_t main_cpu = 0;
         int32_t consumer_cpu = 1;
+        /* Set when the App explicitly selects a CPU pair through the legacy environment contract. */
+        bool cpu_override = false;
         std::string home_dir = "/data/local/tmp";
         std::string root_script_path = "/data/local/tmp/.ghostlock_root.sh";
         /* Per-run KernelSU log (U01-S14): Kotlin passes GHOSTLOCK_KSU_LOG so a

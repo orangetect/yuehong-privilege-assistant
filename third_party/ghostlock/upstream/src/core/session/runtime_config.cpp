@@ -7,6 +7,7 @@ using namespace ghostlock;
 static void runtime_config_init_cpus(config::RuntimeConfig *config) {
     config->main_cpu = 0;
     config->consumer_cpu = 1;
+    config->cpu_override = false;
 
     if (config->main_cpu == config->consumer_cpu) {
         config->main_cpu = 0;
@@ -50,8 +51,8 @@ static int32_t runtime_config_validate_cpus(config::RuntimeConfig *config) {
 /* Apply profile CPU recommendations only where Kotlin/environment did not
  * make an explicit selection. Existing explicit choices remain authoritative. */
 int32_t ghostlock::config::RuntimeConfig::apply_profile(const profile::TargetProfile *profile) {
-    const profile::execution_settings *e = profile->execution();
-    if (!e) return -1;
+    if (!profile || !profile->execution()) return -1;
+    if (cpu_override) return 0;
     int32_t old_main = main_cpu;
     int32_t old_consumer = consumer_cpu;
     main_cpu = static_cast<int32_t>(profile->recommended_main_cpu());
@@ -83,12 +84,45 @@ static void runtime_config_init_paths(config::RuntimeConfig *config) {
 int32_t ghostlock::config::RuntimeConfig::init() {
     main_cpu = 0;
     consumer_cpu = 1;
+    cpu_override = false;
     home_dir.clear();
     root_script_path.clear();
     ksu_log_path.clear();
     debug_dir.clear();
 
     runtime_config_init_cpus(this);
+    const char *main = getenv("GHOSTLOCK_CORE");
+    const char *consumer = getenv("GHOSTLOCK_CONSUMER_CORE");
+    bool explicit_cpu_pair = false;
+    if (main && *main) {
+        char *end_main = nullptr;
+        const long parsed_main = strtol(main, &end_main, 10);
+        if (end_main && *end_main == 0 && parsed_main >= 0 &&
+            parsed_main < CPU_SETSIZE) {
+            this->main_cpu = static_cast<int32_t>(parsed_main);
+            explicit_cpu_pair = true;
+        }
+    }
+    if (consumer && *consumer) {
+        char *end_consumer = nullptr;
+        const long parsed_consumer = strtol(consumer, &end_consumer, 10);
+        if (end_consumer && *end_consumer == 0 && parsed_consumer >= 0 &&
+            parsed_consumer < CPU_SETSIZE) {
+            this->consumer_cpu = static_cast<int32_t>(parsed_consumer);
+            explicit_cpu_pair = true;
+        }
+    } else if (main && *main) {
+        this->consumer_cpu = this->main_cpu + 1;
+        explicit_cpu_pair = true;
+    }
+    if (explicit_cpu_pair && runtime_config_validate_cpus(this) == 0) {
+        this->cpu_override = true;
+    } else if (explicit_cpu_pair) {
+        pr_warning("invalid requested CPU pair %d/%d; using profile recommendation\n",
+                   this->main_cpu, this->consumer_cpu);
+        this->main_cpu = 0;
+        this->consumer_cpu = 1;
+    }
     runtime_config_init_paths(this);
 
     return 0;
