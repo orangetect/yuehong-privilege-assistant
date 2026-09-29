@@ -16,7 +16,7 @@
 ## KSuRoot
 
 - 上游：https://github.com/hmascs/KSuRoot/
-- 同步版本：v3.0.2。
+- 同步版本：2026-09-29 提供的 `KSuRoot-main.zip`（SHA-256 `AE24388FEA5ED0E21EF4F344DB59CB05E7A6F60742C6BF052CE8F2B3413440FC`）。
 - 许可证：Apache License 2.0。
 - 本工程仅使用动态载荷所需的 `kernelpack` 算法及 arm64-v8a 本地辅助组件；完整许可证文本为 `LICENSES/Apache-2.0.txt`。
 

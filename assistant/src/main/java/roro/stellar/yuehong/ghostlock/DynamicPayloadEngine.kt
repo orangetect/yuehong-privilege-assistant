@@ -3,8 +3,8 @@ package roro.stellar.yuehong.ghostlock
 import com.kernelpack.KernelPack
 import com.kernelpack.PackRequest
 import com.kernelpack.policy.GateDecision
+import com.kernelpack.profile.BaselineRegistry
 import com.kernelpack.profile.BaselineScheme
-import com.kernelpack.profile.BaselineProfiles
 import java.util.function.Consumer
 
 /** Small Java-facing bridge around the pure Kotlin KSuRoot kernel packer. */
@@ -21,7 +21,7 @@ object DynamicPayloadEngine {
             PackRequest(
                 bootImage = boot,
                 baseLibrary = base,
-                baseline = BaselineProfiles.byId(baselineId),
+                baseline = BaselineRegistry.byId(baselineId)?.profile,
                 scheme = if (baselineId.startsWith("PD2520-")) BaselineScheme.VIVO else BaselineScheme.UNIVERSAL,
                 log = { line -> logger.accept(line) },
             ),
