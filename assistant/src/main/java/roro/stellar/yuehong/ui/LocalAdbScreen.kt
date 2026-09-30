@@ -36,13 +36,13 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
@@ -107,7 +107,7 @@ fun LocalAdbScreen(
     val bundledPayloads = remember(context) {
         runCatching { KsuRootPayloadCatalog.load(context) }.getOrDefault(emptyList())
     }
-    val listState = rememberLazyListState()
+    val terminalScrollState = rememberScrollState()
     val escalationRunning = escalator.stage !in setOf(EscalationStage.Idle, EscalationStage.Done)
     val localPayloadPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -124,7 +124,7 @@ fun LocalAdbScreen(
 
     LaunchedEffect(controller.output.size) {
         if (controller.output.isNotEmpty()) {
-            listState.animateScrollToItem(controller.output.lastIndex)
+            runCatching { terminalScrollState.animateScrollTo(terminalScrollState.maxValue) }
         }
     }
 
@@ -166,7 +166,7 @@ fun LocalAdbScreen(
             TerminalOutputCard(
                 modifier = Modifier.weight(1f),
                 output = controller.output,
-                listState = listState,
+                scrollState = terminalScrollState,
                 canClear = !controller.isRunning && !escalationRunning,
                 onClear = controller::clear,
             )
@@ -470,7 +470,9 @@ private fun KsuRootPayloadDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 LazyColumn(
-                    modifier = Modifier.heightIn(max = 520.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 0.dp, max = 520.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     items(filtered) { payload ->
@@ -512,7 +514,9 @@ fun LocalPayloadCommandDialog(
         title = { Text(stringResource(R.string.local_payload_command_dialog_title)) },
         text = {
             LazyColumn(
-                modifier = Modifier.heightIn(max = 520.dp),
+                modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 0.dp, max = 520.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 item {
@@ -571,7 +575,7 @@ fun LocalPayloadCommandDialog(
 @Composable
 private fun TerminalOutputCard(
     output: List<OutputLine>,
-    listState: androidx.compose.foundation.lazy.LazyListState,
+    scrollState: androidx.compose.foundation.ScrollState,
     canClear: Boolean,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
@@ -657,17 +661,14 @@ private fun TerminalOutputCard(
                     }
                 } else {
                     SelectionContainer {
-                        LazyColumn(
+                        Column(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .verticalScroll(scrollState)
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
-                            state = listState,
                             verticalArrangement = Arrangement.spacedBy(5.dp),
                         ) {
-                            itemsIndexed(
-                                items = output,
-                                key = { index, line -> "$index-${line.text.hashCode()}" },
-                            ) { _, line ->
+                            output.forEach { line ->
                                 Text(
                                     text = line.text,
                                     style = MaterialTheme.typography.bodyMedium.copy(

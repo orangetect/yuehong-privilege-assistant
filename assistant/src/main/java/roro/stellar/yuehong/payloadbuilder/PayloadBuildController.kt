@@ -19,6 +19,7 @@ import com.kernelpack.profile.BaselineScheme
 import com.kernelpack.vivo.VrKoBypass
 import com.kernelpack.vivo.VrKoGateDecision
 import com.kernelpack.vivo.VrKoPayloadGate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -131,6 +132,8 @@ class PayloadBuildController(context: Context) : AutoCloseable {
                     sourceSize = file.length(),
                     log = lines.takeLast(MAX_LOG_LINES),
                 )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Throwable) {
                 state = state.copy(
                     otaRunning = false,
@@ -281,6 +284,8 @@ class PayloadBuildController(context: Context) : AutoCloseable {
                     savedFiles = paths,
                     log = synchronized(lines) { lines.takeLast(MAX_LOG_LINES) },
                 )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Throwable) {
                 val message = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
                 synchronized(lines) { lines += "[X] $message" }

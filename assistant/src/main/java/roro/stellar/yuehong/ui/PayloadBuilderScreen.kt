@@ -5,20 +5,21 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -33,7 +34,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -51,6 +51,8 @@ fun PayloadBuilderScreen(controller: PayloadBuildController) {
     val context = LocalContext.current
     val current = controller.state
     var showError by remember { mutableStateOf<String?>(null) }
+    val errorScrollState = rememberScrollState()
+    val logScrollState = rememberScrollState()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val (name, size) = context.contentResolver.query(
@@ -77,7 +79,18 @@ fun PayloadBuilderScreen(controller: PayloadBuildController) {
         AlertDialog(
             onDismissRequest = { showError = null },
             title = { Text(stringResource(R.string.builder_error_title)) },
-            text = { SelectionContainer { Text(showError.orEmpty()) } },
+            text = {
+                SelectionContainer {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp)
+                            .verticalScroll(errorScrollState),
+                    ) {
+                        Text(showError.orEmpty())
+                    }
+                }
+            },
             confirmButton = { TextButton(onClick = { showError = null }) { Text(stringResource(R.string.ok)) } },
         )
     }
@@ -90,6 +103,7 @@ fun PayloadBuilderScreen(controller: PayloadBuildController) {
     ) {
         LazyColumn(
             modifier = Modifier
+                .weight(1f)
                 .fillMaxWidth()
                 .widthIn(max = 840.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -205,13 +219,19 @@ fun PayloadBuilderScreen(controller: PayloadBuildController) {
                         fontWeight = FontWeight.Bold,
                     )
                     SelectionContainer {
-                        Text(
-                            modifier = Modifier.heightIn(min = 80.dp, max = 260.dp),
-                            text = current.log.joinToString("\n").ifBlank {
-                                stringResource(R.string.builder_log_empty)
-                            },
-                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 80.dp, max = 260.dp)
+                                .verticalScroll(logScrollState),
+                        ) {
+                            Text(
+                                text = current.log.joinToString("\n").ifBlank {
+                                    stringResource(R.string.builder_log_empty)
+                                },
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                            )
+                        }
                     }
                 }
             }

@@ -355,7 +355,6 @@ class StellarShellController : AutoCloseable {
             "P0_ATTEMPT_TIMEOUT_SEC=45",
             "EXPLOIT_ATTEMPT_TIMEOUT_SEC=120",
             "CVE43499_ROOT_HELPER=$STELLAR_KSU_HELPER_DESTINATION",
-            "LD_PRELOAD=$STELLAR_KSU_PAYLOAD_DESTINATION",
         )
         val remote = Stellar.newProcess(
             arrayOf("sh", "-c", "$command 2>&1"),

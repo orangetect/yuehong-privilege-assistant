@@ -1078,9 +1078,6 @@ public class GhostLockActivity extends ComponentActivity {
                     args.add("--xbl-config");
                     args.add(xblFile.getAbsolutePath());
                 }
-                if (automaticFlow && detectOffsetPlatform() == OffsetPlatform.QUALCOMM) {
-                    args.add("--require-xbl");
-                }
                 args.add("--format");
                 args.add("json");
                 args.add("--out");
