@@ -47,22 +47,18 @@ discover_ksud() {
   return 1
 }
 
-cleanup_tmp_async() {
+cleanup_tmp() {
   CLEANUP_SCRIPT="$SCRIPT_PATH"
   CLEANUP_LOG="$LOG"
   CLEANUP_TMP_ROOT="$TMP_ROOT"
-  (
-    trap '' HUP
-    sleep "${YHROOT_CLEANUP_DELAY:-1}"
-    rm -rf "$CLEANUP_TMP_ROOT"/* "$CLEANUP_TMP_ROOT"/.[!.]* "$CLEANUP_TMP_ROOT"/..?* 2>/dev/null
-    rm -f \
-      "$CLEANUP_SCRIPT" \
-      "$CLEANUP_LOG" \
-      "$CLEANUP_TMP_ROOT/yhroot_ksu_activate.sh" \
-      "$CLEANUP_TMP_ROOT/yhroot_ksu_activate.log" \
-      "$CLEANUP_TMP_ROOT/.ghostlock_root.sh" \
-      "$CLEANUP_TMP_ROOT/.ghostlock_ksu.log"
-  ) </dev/null >/dev/null 2>&1 &
+  if [ "$CLEANUP_TMP_ROOT" = "/data/local/tmp" ]; then
+    rm -rf /data/local/tmp/* /data/local/tmp/.[!.]* /data/local/tmp/..?* 2>/dev/null
+  fi
+  case "$CLEANUP_SCRIPT" in
+    /data/local/tmp/*)
+      rm -f "$CLEANUP_SCRIPT" "$CLEANUP_LOG"
+      ;;
+  esac
 }
 
 echo "[*] KernelSU activation script start uid=$(id -u)" >"$LOG"
@@ -136,10 +132,11 @@ echo "[*] policy fixup rc=$FIXUP_RC" >>"$LOG"
 if [ "$FIXUP_RC" -eq 0 ]; then
   echo "[*] restoring enforcing" >>"$LOG"
   echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
-  echo "[*] activation complete; asynchronous cleanup scheduled" >>"$LOG"
-  cleanup_tmp_async
+  echo "[*] activation complete; temporary files cleaned" >>"$LOG"
+  cleanup_tmp
   exit 0
 fi
 
 echo '[!] fixup failed; SELinux left permissive' | tee -a "$LOG"
+cleanup_tmp
 exit "$FIXUP_RC"
