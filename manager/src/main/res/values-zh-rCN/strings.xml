@@ -380,4 +380,5 @@
     <string name="stellar_tab_activation">激活</string>
     <string name="stellar_tab_apps">授权应用</string>
     <string name="stellar_tab_privilege">提权</string>
+    <string name="stellar_tab_builder">构建产物</string>
 </resources>
