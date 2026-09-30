@@ -51,43 +51,6 @@
     </LinearLayout>
 
     <LinearLayout
-        android:id="@+id/strategyCard"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:background="@drawable/ghostlock_bg_card"
-        android:orientation="vertical"
-        android:padding="12dp">
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/ghostlock_strategy_title"
-            android:textColor="@color/ghostlock_text_primary"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-        <RadioGroup
-            android:id="@+id/strategyGroup"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            <RadioButton
-                android:id="@+id/strategyOffsets"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:checked="true"
-                android:text="@string/ghostlock_strategy_offsets"
-                android:textColor="@color/ghostlock_text_primary" />
-            <RadioButton
-                android:id="@+id/strategyDynamic"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/ghostlock_strategy_dynamic"
-                android:textColor="@color/ghostlock_text_primary" />
-        </RadioGroup>
-    </LinearLayout>
-    <LinearLayout
         android:id="@+id/otaCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

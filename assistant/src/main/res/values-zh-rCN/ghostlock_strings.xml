@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="ghostlock_app_name">GhostLock+KSuRoot</string>
+    <string name="ghostlock_app_name">GhostLock</string>
     <string name="ghostlock_action_running">执行中…</string>
     <string name="ghostlock_action_advanced">高级选项</string>
     <string name="ghostlock_action_import_offsets">导入 offsets.json</string>
@@ -47,10 +47,4 @@
     <string name="ghostlock_kernel_unsupported">不支持</string>
     <string name="ghostlock_support_label">支持</string>
     <string name="ghostlock_cpu_pair_label">CPU 核心对</string>
-    <string name="ghostlock_strategy_title">GhostLock+KSuRoot 方案</string>
-    <string name="ghostlock_strategy_offsets">偏移表方案（默认）</string>
-    <string name="ghostlock_strategy_dynamic">KSuRoot 动态载荷方案</string>
-    <string name="ghostlock_dynamic_select">选择内置动态载荷</string>
-    <string name="ghostlock_dynamic_import">导入本地 .so 载荷</string>
-    <string name="ghostlock_dynamic_build">选择 boot.img 并构建载荷</string>
-    <string name="ghostlock_dynamic_run">启动动态载荷</string></resources>
+</resources>

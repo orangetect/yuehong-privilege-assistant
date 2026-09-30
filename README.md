@@ -14,8 +14,8 @@
 2. 检查内置 Stellar Binder 和 `stellar` 权限。
 3. 服务未启动时进入应用内无线调试自激活页；配对、连接和服务启动均由内置 Stellar 组件完成。
 4. 服务已启动但权限未确认时，使用 Stellar 自身授权页完成显式授权。
-5. 授权后进入命令工作台，终端、在线提权和本地提权文件都通过 `Stellar.newProcess()` 执行。
-6. 在线提权继续使用构建者自有服务端的精确设备匹配、签名响应和多线路资源回退；本地文件模式完全不请求服务器。
+5. 授权后进入命令工作台，终端和本地提权文件都通过 `Stellar.newProcess()` 执行。
+6. Stellar 提权使用 APK 内置的 KSuRoot 载荷手动选择，或导入本地载荷；提权执行不再请求设备匹配和载荷下载服务。
 7. 提权成功后可按原流程检测并激活 KernelSU；KernelSU 接管后的 `su` 不可用时立即停止后续命令。
 
 应用保留正式版包名；使用相同证书签名时可覆盖安装现有正式版。公开源码不附带发行证书。整合工程未使用 Stellar 上游的 `sharedUserId`。
@@ -23,7 +23,7 @@
 ## 源码结构
 
 ```text
-assistant/  月虹提权助手 UI、启动验证、设备匹配、多线路下载和提权业务
+assistant/  月虹提权助手 UI、启动验证、本地载荷和提权业务
 manager/    Android 宿主、自激活界面、无线调试、授权与 Binder 接收组件
 server/     以 ADB shell 或 Root 身份运行的 Stellar 特权服务
 api/        随工程固定版本交付的 Stellar API、AIDL、Provider 与共享代码
@@ -37,7 +37,7 @@ LICENSES/   第三方许可证文本
 
 - [Stellar](https://github.com/roro2239/Stellar)：内置的 Manager、Server 与核心服务框架。
 - [GhostLock-App](https://github.com/YuKongA/ghostlock-app)：GhostLock 原生提权核心、OTA 解析器和内核偏移资源。
-- [KSuRoot](https://github.com/hmascs/KSuRoot/)：动态载荷方案所使用的 KernelPack 算法及 arm64-v8a 本地辅助组件。
+- [KSuRoot](https://github.com/hmascs/KSuRoot/)：本地载荷目录、KernelPack 组件及 arm64-v8a 本地辅助组件。
 
 其他第三方代码的许可证和归属见 [NOTICE.md](NOTICE.md) 与 [LICENSES](LICENSES)。
 
@@ -100,7 +100,7 @@ out/mapping/mapping-v1.5.5.txt
 
 - 自激活只负责启动 ADB shell/Root 身份的 Stellar 服务，不会让 Android 应用进程本身变成 Root。
 - 助手在每次执行前同时检查 Binder 存活状态和 Stellar 授权状态。
-- 在线业务响应、资源元数据和后续线路票据继续执行 Ed25519 与 SHA-256 校验。
+- 有线 vivo/iQOO 提权的在线响应、资源元数据和线路票据继续执行 Ed25519 与 SHA-256 校验。
 - 本地文件先复制到应用私有缓存，再由 Stellar 写入 `/data/local/tmp/preload.so`；不会修改用户选择的原文件。
 - 正式运营接口仍校验应用 ID 和正式签名证书；自行重签名的构建不会连接正式服务。
 
@@ -112,15 +112,15 @@ out/mapping/mapping-v1.5.5.txt
 - Stellar 与月虹修改文件遵循 MPL-2.0，完整文本位于 [LICENSES/MPL-2.0.txt](LICENSES/MPL-2.0.txt)。
 - Stellar 中源自 Shizuku 的文件保留 Apache-2.0。
 - GhostLock 源码保留 Apache-2.0。
-- KSuRoot 动态载荷组件保留 Apache-2.0。
+- KSuRoot 本地载荷组件保留 Apache-2.0。
 
 根目录 [LICENSE](LICENSE) 为 MPL-2.0 完整文本。完整归属与修改说明见 [NOTICE.md](NOTICE.md)，第三方许可文本见 [LICENSES](LICENSES)。发布前可运行 `tools/verify_public_source.ps1` 检查配置、密钥文件和构建产物是否被误加入。
 ## GhostLock 独立页面
 
 启动验证与频道授权通过后，应用先进入提权模式选择页：
 
-- **内核 6.1 / 6.6 / 6.12 · GhostLock**：无需 Stellar 激活，按精确 `uname -r` 使用内置或导入 offsets；支持 `boot.img`、骁龙 `boot.img + xbl_config.img`、天玑 `boot.img` 与完整 OTA 链接。
-- **通用提权助手 · Stellar**：继续保留机型匹配、服务端多线路提权文件、完全本地文件、自激活和命令控制台。
+- **内核 6.1 / 6.6 / 6.12 · GhostLock**：独立运行，按精确 `uname -r` 使用内置或导入 offsets；支持 `boot.img`、骁龙 `boot.img + xbl_config.img`、天玑 `boot.img` 与完整 OTA 链接。
+- **通用提权助手 · Stellar+KSuRoot**：使用 APK 内置 KSuRoot 载荷手动选择、本地文件导入、自激活和命令控制台。
 
 GhostLock 完整上游源码固定在 `third_party/ghostlock`。更新其原生组件后执行：
 

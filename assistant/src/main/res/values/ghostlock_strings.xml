@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="ghostlock_app_name">GhostLock+KSuRoot</string>
+    <string name="ghostlock_app_name">GhostLock</string>
     <string name="ghostlock_action_running">Running…</string>
     <string name="ghostlock_action_advanced">Advanced</string>
     <string name="ghostlock_action_import_offsets">Import offsets.json</string>
@@ -47,10 +47,4 @@
     <string name="ghostlock_kernel_unsupported">Not supported</string>
     <string name="ghostlock_support_label">Support</string>
     <string name="ghostlock_cpu_pair_label">CPU cores</string>
-    <string name="ghostlock_strategy_title">GhostLock+KSuRoot scheme</string>
-    <string name="ghostlock_strategy_offsets">Offsets (default)</string>
-    <string name="ghostlock_strategy_dynamic">KSuRoot dynamic payload</string>
-    <string name="ghostlock_dynamic_select">Select bundled payload</string>
-    <string name="ghostlock_dynamic_import">Import local .so payload</string>
-    <string name="ghostlock_dynamic_build">Pick boot.img and build payload</string>
-    <string name="ghostlock_dynamic_run">Run dynamic payload</string></resources>
+</resources>

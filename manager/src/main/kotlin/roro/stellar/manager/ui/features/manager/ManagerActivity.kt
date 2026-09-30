@@ -39,8 +39,6 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import roro.stellar.yuehong.shell.HttpCompatibilityApi
-import roro.stellar.yuehong.shell.HttpPayloadResourceDownloader
 import roro.stellar.yuehong.shell.PrivilegeEscalator
 import roro.stellar.yuehong.shell.StellarShellController
 import roro.stellar.yuehong.ui.LocalAdbScreen
@@ -178,19 +176,8 @@ private fun StellarWorkspaceScreen(appsViewModel: AppsViewModel) {
     val context = LocalContext.current
     val topAppBarState = LocalTopAppBarState.current!!
     val controller = remember { StellarShellController() }
-    val compatibilityApi = remember(context.applicationContext) {
-        HttpCompatibilityApi(context.applicationContext)
-    }
-    val downloader = remember(context.applicationContext) {
-        HttpPayloadResourceDownloader(context.applicationContext)
-    }
     val escalator = remember(context.applicationContext) {
-        PrivilegeEscalator(
-            context.applicationContext,
-            controller,
-            compatibilityApi,
-            downloader,
-        )
+        PrivilegeEscalator(context.applicationContext, controller)
     }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val tabs = listOf(
@@ -198,11 +185,10 @@ private fun StellarWorkspaceScreen(appsViewModel: AppsViewModel) {
         Triple(R.string.stellar_tab_privilege, Icons.Filled.Security, "privilege"),
     )
 
-    DisposableEffect(controller, compatibilityApi, escalator) {
+    DisposableEffect(controller, escalator) {
         controller.register()
         onDispose {
             escalator.close()
-            compatibilityApi.close()
             controller.close()
         }
     }
