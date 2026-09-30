@@ -1339,6 +1339,7 @@ public class GhostLockActivity extends ComponentActivity {
         pb.environment().put("TMPDIR", workDir.getAbsolutePath());
         pb.environment().put("HOME", workDir.getAbsolutePath());
         pb.environment().put("YHROOT_CLEANUP_DELAY", "5");
+        pb.environment().put("YHROOT_SHARED_SCRIPT", "1");
         int[] pair = cpuPairs.get(cpuPairIndex);
         if (pair[0] != 0 || pair[1] != 1) {
             pb.environment().put("GHOSTLOCK_CORE", String.valueOf(pair[0]));

@@ -96,7 +96,7 @@ class PrivilegeEscalator(
             val bundled = selectedBundledPayload
             executor.execute {
                 if (bundled == null) runKernelSuActivation(rootResult.suPath)
-                else runBundledKernelSuActivation(bundled)
+                else runBundledKernelSuActivation(rootResult.suPath)
             }
         }
     }
@@ -151,19 +151,26 @@ class PrivilegeEscalator(
             }
 
             updateStage(EscalationStage.CheckingRoot)
-            val output = execution.output.trim()
-            val isRoot = ROOT_UID_PATTERN.containsMatchIn(output) || output.contains("done=1 root=1")
-            log("root detected=" + isRoot)
-            updateStage(EscalationStage.Done)
-            mainHandler.post {
-                result = if (isRoot) {
-                    EscalationResult.RootConfirmed(output, LOCAL_PAYLOAD_SU_PATH)
-                } else {
-                    EscalationResult.Failure(
+            val payloadOutput = execution.output.trim()
+            val rootCheck = findRootSu()
+            if (rootCheck == null) {
+                log("root detected=false")
+                updateStage(EscalationStage.Done)
+                mainHandler.post {
+                    result = EscalationResult.Failure(
                         EscalationStage.CheckingRoot,
-                        "KSuRoot 输出中没有 uid=0 或成功标记",
+                        "uid=0 was not found from any available su path",
                     )
                 }
+                return
+            }
+            val output = listOf(payloadOutput, rootCheck.output)
+                .filter(String::isNotBlank)
+                .joinToString("\n")
+            log("root detected=true via " + rootCheck.path)
+            updateStage(EscalationStage.Done)
+            mainHandler.post {
+                result = EscalationResult.RootConfirmed(output, rootCheck.path)
             }
         } catch (error: Throwable) {
             val reason = error.message?.takeIf(String::isNotBlank) ?: error.javaClass.simpleName
@@ -187,7 +194,7 @@ class PrivilegeEscalator(
         }
     }
 
-    private fun runBundledKernelSuActivation(payload: KsuRootPayload) {
+    private fun runBundledKernelSuActivation(suPath: String) {
         var failure: Throwable? = null
         var cachedScript: File? = null
         var output = ""
@@ -197,7 +204,8 @@ class PrivilegeEscalator(
             if (installation.exitCode != 0) {
                 throw IOException("KernelSU activation script installation failed")
             }
-            val execution = shell.executeKsuRoot(
+            val execution = executeSuCommand(
+                suPath,
                 "/system/bin/sh '" + KERNEL_SU_ACTIVATION_SCRIPT_DESTINATION + "'; " +
                     "rc=\$?; cat '" + KERNEL_SU_ACTIVATION_SCRIPT_LOG +
                     "' 2>/dev/null; exit \$rc",
@@ -480,6 +488,22 @@ class PrivilegeEscalator(
         return executeProcess(arrayOf(suPath, "-c", innerCommand))
     }
 
+    private fun findRootSu(): RootCheck? {
+        for (path in ROOT_SU_CANDIDATES) {
+            try {
+                val check = executeSuCommand(path, ROOT_CHECK_INNER_COMMAND)
+                val output = check.output.trim()
+                log("root check " + path + " exit=" + check.exitCode + ": " + output.ifBlank { "<empty>" })
+                if (ROOT_UID_PATTERN.containsMatchIn(output)) {
+                    return RootCheck(path, output)
+                }
+            } catch (error: Throwable) {
+                log("root check " + path + " unavailable")
+            }
+        }
+        return null
+    }
+
     @Suppress("DEPRECATION")
     private fun executeProcess(arguments: Array<String>): CommandExecution {
         val nullableArguments = Array<String?>(arguments.size) { index -> arguments[index] }
@@ -543,5 +567,21 @@ class PrivilegeEscalator(
         const val LOCAL_PAYLOAD_PREFIX = "payload-"
         const val ROOT_CHECK_INNER_COMMAND = "id"
         const val KERNEL_SU_ACTIVATION_ASSET = "yhroot_ksu_activate.sh"
+        val ROOT_SU_CANDIDATES = listOf(
+            LOCAL_PAYLOAD_SU_PATH,
+            "/apex/com.android.virt/bin/su",
+            "/product/bin/su",
+            "/debug_ramdisk/su",
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/sbin/su",
+            "/vendor/bin/su",
+            "/odm/bin/su",
+        )
     }
+
+    private data class RootCheck(
+        val path: String,
+        val output: String,
+    )
 }

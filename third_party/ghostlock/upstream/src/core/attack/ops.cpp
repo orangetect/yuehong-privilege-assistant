@@ -19,6 +19,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/utsname.h>
+#include <unistd.h>
 
 namespace ghostlock::attack {
     void log_execution_settings(const profile::kernel_offsets *profile) {
@@ -224,9 +225,23 @@ namespace ghostlock::attack {
     }
 
     void write_root_script(void) {
+        const std::string root_script_path =
+                config::runtime_config_snapshot().root_script_path;
+        /* The Android wrapper installs the shared KernelSU activation script
+         * before starting GhostLock. Keep that exact script so GhostLock and
+         * Stellar+KSuRoot use one activation implementation. The generated
+         * fallback remains for standalone native callers. */
+        const char *shared_script = getenv("YHROOT_SHARED_SCRIPT");
+        if (shared_script && strcmp(shared_script, "1") == 0 &&
+            access(root_script_path.c_str(), F_OK) == 0) {
+            chmod(root_script_path.c_str(), 0755);
+            pr_info("root script kept path=%s (shared activation script)\n",
+                    root_script_path.c_str());
+            return;
+        }
         std::string script(12288, '\0');
         support::UniqueFd sfd(
-            open((config::runtime_config_snapshot().root_script_path.c_str()), O_WRONLY | O_CREAT | O_TRUNC, 0755));
+            open(root_script_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0755));
         if (!sfd.valid()) {
             pr_warning("open root script failed path=%s errno=%d\n",
                        (config::runtime_config_snapshot().root_script_path.c_str()), errno);
