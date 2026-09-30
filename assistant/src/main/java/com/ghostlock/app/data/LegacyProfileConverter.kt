@@ -161,12 +161,18 @@ internal object LegacyProfileConverter {
         moveGroup(entry, "struct_fields", "task_struct", "task_", TaskStructFields)
         /* Local transition builds also stored credential/tuning keys here. */
         moveGroup(entry, "struct_fields", "cred", "cred_", CredFields)
-        val structFields = entry["struct_fields"].asValueMap() ?: return
-        val snitch = entry.mutableChild("kernelsnitch")
-        moveKey(structFields, snitch, "kernelsnitch_collisions", "collisions")
-        moveKey(structFields, snitch, "mm_struct_sz", "mm_struct_sz")
-        if (snitch.isEmpty()) entry.remove("kernelsnitch")
-        if (structFields.isEmpty()) entry.remove("struct_fields")
+        entry["struct_fields"].asValueMap()?.let { structFields ->
+            val snitch = entry.mutableChild("kernelsnitch")
+            moveKey(structFields, snitch, "kernelsnitch_collisions", "collisions")
+            moveKey(structFields, snitch, "mm_struct_sz", "mm_struct_sz")
+            if (snitch.isEmpty()) entry.remove("kernelsnitch")
+        }
+        /* The extractor also reports BTF fields used only for diagnostics
+         * (rt_mutex_waiter, seccomp_*, cred_uid, ...). They are not part of
+         * the GLK1 profile schema. Drop the legacy containers after copying
+         * the fields consumed by the current schema. */
+        entry.remove("symbols")
+        entry.remove("struct_fields")
     }
 
     private fun moveGroup(
