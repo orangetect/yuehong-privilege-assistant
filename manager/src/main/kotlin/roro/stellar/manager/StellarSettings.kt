@@ -13,7 +13,6 @@ object StellarSettings {
     const val TCPIP_PORT_ENABLED = "tcpip_port_enabled"
     const val BOOT_BROADCAST_ACCESSIBILITY_ENABLED = "boot_broadcast_accessibility_enabled"
     const val THEME_MODE = "theme_mode"
-    const val START_PAGE = "start_page"
     const val DROP_PRIVILEGES = "drop_privileges"
     const val WIRELESS_DEBUGGING_SU = "wireless_debugging_su"
     const val SHIZUKU_COMPAT_ENABLED = "shizuku_compat_enabled"

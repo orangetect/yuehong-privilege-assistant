@@ -9,12 +9,6 @@ import androidx.compose.runtime.compositionLocalOf
 @OptIn(ExperimentalMaterial3Api::class)
 val LocalTopAppBarState = compositionLocalOf<TopAppBarState?> { null }
 
-data class NavigationState(
-    val selectedIndex: Int,
-    val onItemClick: (Int) -> Unit
-)
-
-val LocalNavigationState = compositionLocalOf<NavigationState?> { null }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

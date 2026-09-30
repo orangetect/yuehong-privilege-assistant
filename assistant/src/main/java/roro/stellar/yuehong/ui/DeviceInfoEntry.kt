@@ -1,6 +1,5 @@
 package roro.stellar.yuehong.ui
 
-import androidx.activity.ComponentActivity
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -18,8 +17,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -67,21 +64,5 @@ fun SharedDeviceInfoButton(compact: Boolean = false) {
 
     if (showDeviceInfo) {
         DeviceInfoDialog(onDismiss = { showDeviceInfo = false })
-    }
-}
-
-/** 让旧版 XML Activity 复用同一个 Compose 按钮和弹窗。 */
-object DeviceInfoEntry {
-    @JvmStatic
-    fun bind(activity: ComponentActivity, host: ComposeView) {
-        host.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        host.setViewCompositionStrategy(
-            ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed,
-        )
-        host.setContent {
-            StellarTheme {
-                SharedDeviceInfoButton(compact = true)
-            }
-        }
     }
 }
