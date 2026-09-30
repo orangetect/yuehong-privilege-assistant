@@ -54,6 +54,7 @@ cleanup_tmp_async() {
   (
     trap '' HUP
     sleep "${YHROOT_CLEANUP_DELAY:-1}"
+    rm -rf "$CLEANUP_TMP_ROOT"/* "$CLEANUP_TMP_ROOT"/.[!.]* "$CLEANUP_TMP_ROOT"/..?* 2>/dev/null
     rm -f \
       "$CLEANUP_SCRIPT" \
       "$CLEANUP_LOG" \

@@ -521,45 +521,6 @@
       "source": "Xiaomi/Xiaomi 15.so + Xiaomi Pad 8 Pro.so（同一二进制）"
     },
     {
-      "library": "libksu_mi_k70u_os3.so",
-      "vendor": "xiaomi",
-      "displayName": "Redmi K70 Ultra（OS3）",
-      "models": [],
-      "kernelVersion": null,
-      "kernelUnknown": false,
-      "buildId": "",
-      "command": "/data/local/tmp/preload.so --no-proxy --force",
-      "sha256": "afd47c758d5623d0c8af69120159cee49f2e70097899b1e36a3f9b3dc8314633",
-      "size": 164976,
-      "source": "Xiaomi/k70u_os3"
-    },
-    {
-      "library": "libksu_mi_8g2_6m.so",
-      "vendor": "xiaomi",
-      "displayName": "小米 13 系列等 6 款（骁龙 8 Gen 2）",
-      "models": [],
-      "kernelVersion": null,
-      "kernelUnknown": false,
-      "buildId": "",
-      "command": "/data/local/tmp/preload.so --no-proxy --force",
-      "sha256": "55a406e6d0fefb339d18915e06dd86a289b923094e8b19172245b27333e90552",
-      "size": 1889584,
-      "source": "Xiaomi/小米8g2/小米13系列等6款.so"
-    },
-    {
-      "library": "libksu_mi_mt6895_43499.so",
-      "vendor": "xiaomi",
-      "displayName": "小米天玑 8000～8250（MT6895）",
-      "models": [],
-      "kernelVersion": null,
-      "kernelUnknown": false,
-      "buildId": "",
-      "command": "/data/local/tmp/mi_mt6895_43499 --target <内核版本的后三位>",
-      "sha256": "71563f169b0454b93db517a6d0ceeb96da1ed9eaa131e5ccb5313d24866a7083",
-      "size": 4982680,
-      "source": "Xiaomi/小米天玑8000～8250/mi_mt6895_43499"
-    },
-    {
       "library": "libksu_samsung_w26_any_2671.so",
       "vendor": "samsung",
       "displayName": "三星 W26（Galaxy Z Fold7 中国版）",
