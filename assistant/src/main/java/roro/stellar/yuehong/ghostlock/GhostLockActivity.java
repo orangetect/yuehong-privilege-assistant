@@ -45,8 +45,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -698,21 +696,16 @@ public class GhostLockActivity extends ComponentActivity {
     private void runExtract(String input, File xblFile, boolean automaticFlow) {
         worker.execute(() -> {
             int code = 1;
-            File downloadedOta = null;
+
             try {
                 File binary = new File(getApplicationInfo().nativeLibraryDir, EXTRACT_NAME);
                 if (!binary.isFile()) {
                     throw new IOException("missing native binary: " + binary.getAbsolutePath());
                 }
                 File workDir = getFilesDir();
-                String extractInput = input;
-                if (isHttpUrl(input)) {
-                    downloadedOta = downloadOta(input, workDir);
-                    extractInput = downloadedOta.getAbsolutePath();
-                    appendLog("OTA downloaded: " + extractInput);
-                }
+                // Keep the original Payload Dumper path: libextract.so handles HTTP(S) OTA URLs itself and downloads only the required payload partitions through HTTP Range requests.
                 List<String> args = new ArrayList<>();
-                args.add(extractInput);
+                args.add(input);
                 if (xblFile != null) {
                     args.add("--xbl-config");
                     args.add(xblFile.getAbsolutePath());
@@ -785,64 +778,10 @@ public class GhostLockActivity extends ComponentActivity {
                     ui.post(() -> setRunState(RunState.FAILED));
                 }
                 ui.post(() -> toast(R.string.ghostlock_parse_failed));
-            } finally {
-                if (downloadedOta != null && downloadedOta.isFile() && !downloadedOta.delete()) {
-                    downloadedOta.deleteOnExit();
-                }
             }
         });
     }
 
-    private static boolean isHttpUrl(String value) {
-        return value != null && (value.startsWith("http://") || value.startsWith("https://"));
-    }
-
-    /** Download an OTA to app-private storage before passing it to the native extractor. */
-    private File downloadOta(String source, File workDir) throws IOException {
-        File target = new File(workDir, "ghostlock-ota.zip");
-        HttpURLConnection connection = null;
-        try {
-            URL url = new URL(source);
-            for (int redirect = 0; redirect < 5; redirect++) {
-                connection = (HttpURLConnection) url.openConnection();
-                connection.setInstanceFollowRedirects(false);
-                connection.setConnectTimeout(30000);
-                connection.setReadTimeout(120000);
-                connection.setRequestProperty("Accept", "*/*");
-                int status = connection.getResponseCode();
-                if (status >= 300 && status < 400) {
-                    String location = connection.getHeaderField("Location");
-                    connection.disconnect();
-                    connection = null;
-                    if (location == null || location.isEmpty()) {
-                        throw new IOException("OTA redirect has no location");
-                    }
-                    url = new URL(url, location);
-                    continue;
-                }
-                if (status != HttpURLConnection.HTTP_OK) {
-                    throw new IOException("OTA download failed: HTTP " + status);
-                }
-                try (InputStream in = connection.getInputStream();
-                     OutputStream out = new FileOutputStream(target, false)) {
-                    byte[] buffer = new byte[64 * 1024];
-                    int read;
-                    while ((read = in.read(buffer)) != -1) {
-                        out.write(buffer, 0, read);
-                    }
-                }
-                if (!target.isFile() || target.length() == 0) {
-                    throw new IOException("OTA download produced an empty file");
-                }
-                return target;
-            }
-            throw new IOException("too many OTA redirects");
-        } finally {
-            if (connection != null) {
-                connection.disconnect();
-            }
-        }
-    }
 
     /**
      * Map an extractor exit code to the user-facing failure message.
