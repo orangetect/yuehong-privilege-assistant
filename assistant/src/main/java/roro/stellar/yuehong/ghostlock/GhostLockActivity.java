@@ -163,6 +163,7 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     private void runAutomaticOffsetExtract(String input) {
+        input = normalizeOtaUrl(input);
         OffsetPlatform platform = detectOffsetPlatform();
         if (platform == OffsetPlatform.MEDIATEK) {
             appendLog("[偏移表] 联发科平台：提取 boot.img");
@@ -481,7 +482,32 @@ public class GhostLockActivity extends ComponentActivity {
                 .commit();
     }
 
-    private boolean isValidOtaUrl(String value) { return value.startsWith("https://") || value.startsWith("http://"); }
+    private static String normalizeOtaUrl(String value) {
+        if (value == null) {
+            return "";
+        }
+        String normalized = value.trim();
+        int linkStart = normalized.indexOf("](");
+        if (normalized.startsWith("[") && linkStart > 0 && normalized.endsWith(")")) {
+            normalized = normalized.substring(linkStart + 2, normalized.length() - 1).trim();
+        } else {
+            Matcher matcher = Pattern.compile("https?://[^\\s\\]\\)]+", Pattern.CASE_INSENSITIVE).matcher(normalized);
+            if (matcher.find()) {
+                normalized = matcher.group();
+            }
+        }
+        return normalized
+                .replace("\\_", "_")
+                .replace("\\&", "&")
+                .replace("\\?", "?")
+                .replace("\\=", "=")
+                .replace("\\%", "%");
+    }
+
+    private boolean isValidOtaUrl(String value) {
+        String normalized = normalizeOtaUrl(value);
+        return normalized.startsWith("https://") || normalized.startsWith("http://");
+    }
 
     @Override
     public void onBackPressed() {
@@ -555,7 +581,7 @@ public class GhostLockActivity extends ComponentActivity {
             return;
         }
         setRunState(RunState.RUNNING);
-        String suppliedOta = otaUrlInput.getText().toString().trim();
+        String suppliedOta = normalizeOtaUrl(otaUrlInput.getText().toString());
         if (!suppliedOta.isEmpty()) {
             if (!isValidOtaUrl(suppliedOta)) {
                 automaticFlowRunning.set(false);
@@ -703,9 +729,10 @@ public class GhostLockActivity extends ComponentActivity {
                     throw new IOException("missing native binary: " + binary.getAbsolutePath());
                 }
                 File workDir = getFilesDir();
+                String normalizedInput = normalizeOtaUrl(input);
                 // Keep the original Payload Dumper path: libextract.so handles HTTP(S) OTA URLs itself and downloads only the required payload partitions through HTTP Range requests.
                 List<String> args = new ArrayList<>();
-                args.add(input);
+                args.add(normalizedInput);
                 if (xblFile != null) {
                     args.add("--xbl-config");
                     args.add(xblFile.getAbsolutePath());
@@ -716,7 +743,7 @@ public class GhostLockActivity extends ComponentActivity {
                 args.add(new File(workDir, "offsets_parse.tmp").getAbsolutePath());
                 args.add("--work-dir");
                 args.add(workDir.getAbsolutePath());
-                appendLog("extract: " + input);
+                appendLog("extract: " + normalizedInput);
                 code = runExtractProcess(binary, args, workDir);
                 appendLog("extract exit code=" + code);
                 File offsets = new File(workDir, OFFSETS_JSON);
