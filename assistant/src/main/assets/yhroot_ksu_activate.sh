@@ -13,7 +13,7 @@ case "$SCRIPT_PATH" in
     LOG="${SCRIPT_PATH%/*}/.ghostlock_ksu.log"
     ;;
   *)
-    LOG="$TMP_ROOT/yhroot_ksu_activate.log"
+    LOG=/dev/null
     ;;
 esac
 
@@ -48,17 +48,12 @@ discover_ksud() {
 }
 
 cleanup_tmp() {
-  CLEANUP_SCRIPT="$SCRIPT_PATH"
-  CLEANUP_LOG="$LOG"
   CLEANUP_TMP_ROOT="$TMP_ROOT"
   if [ "$CLEANUP_TMP_ROOT" = "/data/local/tmp" ]; then
-    rm -rf /data/local/tmp/* /data/local/tmp/.[!.]* /data/local/tmp/..?* 2>/dev/null
+    /system/bin/rm -rf /data/local/tmp/* /data/local/tmp/.[!.]* /data/local/tmp/..?* 2>/dev/null
+    return $?
   fi
-  case "$CLEANUP_SCRIPT" in
-    /data/local/tmp/*)
-      rm -f "$CLEANUP_SCRIPT" "$CLEANUP_LOG"
-      ;;
-  esac
+  /system/bin/rm -rf "$CLEANUP_TMP_ROOT"/* "$CLEANUP_TMP_ROOT"/.[!.]* "$CLEANUP_TMP_ROOT"/..?* 2>/dev/null
 }
 
 echo "[*] KernelSU activation script start uid=$(id -u)" >"$LOG"
@@ -130,10 +125,13 @@ done
 
 echo "[*] policy fixup rc=$FIXUP_RC" >>"$LOG"
 if [ "$FIXUP_RC" -eq 0 ]; then
-  echo "[*] restoring enforcing" >>"$LOG"
-  echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
-  echo "[*] activation complete; temporary files cleaned" >>"$LOG"
+  echo "[*] activation complete; cleaning temporary files" >>"$LOG"
   cleanup_tmp
+  CLEANUP_RC=$?
+  echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
+  if [ "$CLEANUP_RC" -ne 0 ]; then
+    exit "$CLEANUP_RC"
+  fi
   exit 0
 fi
 
