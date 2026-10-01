@@ -439,7 +439,7 @@ private fun EscalationCard(
 }
 
 @Composable
-private fun KsuRootPayloadDialog(
+fun KsuRootPayloadDialog(
     payloads: List<KsuRootPayload>,
     onSelect: (KsuRootPayload) -> Unit,
     onDismiss: () -> Unit,

@@ -4,25 +4,18 @@ import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
-import org.json.JSONObject
 import roro.stellar.manager.adb.UsbAdbClient
-import roro.stellar.yuehong.shell.CompatibilityResult
 import roro.stellar.yuehong.shell.DeviceProfile
-import roro.stellar.yuehong.shell.HttpCompatibilityApi
-import roro.stellar.yuehong.shell.HttpPayloadResourceDownloader
-import roro.stellar.yuehong.shell.PayloadResource
-import roro.stellar.yuehong.shell.ResourceTicketResult
+import roro.stellar.yuehong.shell.KsuRootPayload
+import roro.stellar.yuehong.shell.KsuRootPayloadCatalog
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import kotlin.coroutines.resume
-import kotlinx.coroutines.suspendCancellableCoroutine
 
 internal enum class VivoWiredStage {
     Idle,
     Connecting,
     CollectingDeviceInfo,
-    RequestingPayload,
     DownloadingPayload,
     TransferringPayload,
     Rebooting,
@@ -50,18 +43,20 @@ internal data class VivoWiredLocalRequest(
     val command: String,
 )
 
-/** USB-host ADB privilege flow; online payloads remain vivo/iQOO-specific, local payloads are unrestricted. */
+/** USB-host ADB privilege flow using a bundled KSuRoot payload or a user-selected local payload. */
 internal class VivoWiredEscalator(
     context: Context,
     private val connectTarget: suspend (waitingAfterReboot: Boolean) -> UsbAdbClient,
     private val publish: (VivoWiredProgress) -> Unit,
 ) : AutoCloseable {
     private val appContext = context.applicationContext
-    private val compatibilityApi = HttpCompatibilityApi(appContext)
-    private val downloader = HttpPayloadResourceDownloader(appContext)
     private var state = VivoWiredProgress()
 
-    suspend fun run(localRequest: VivoWiredLocalRequest? = null) {
+    suspend fun run(
+        localRequest: VivoWiredLocalRequest? = null,
+        bundledPayload: KsuRootPayload? = null,
+    ) {
+        require((localRequest == null) != (bundledPayload == null)) { "必须选择内置载荷或本地文件" }
         var client: UsbAdbClient? = null
         var payloadFile: File? = null
         try {
@@ -83,20 +78,17 @@ internal class VivoWiredEscalator(
 
             val payloadCommand: String
             val suPath: String
-            if (localRequest == null) {
-                update(VivoWiredStage.RequestingPayload, "正在请求设备专属提权文件")
-                val payload = requestPayload(profile)
-                validateCommand(payload.command)
-                validateSuPath(payload.suPath)
-                log("服务端已返回严格匹配的设备专属文件")
-
-                update(VivoWiredStage.DownloadingPayload, "正在下载并校验提权文件")
-                payloadFile = downloadPayload(payload)
-                payloadCommand = payload.command
-                suPath = payload.suPath
-                log("提权文件 SHA-256 与大小校验通过")
+            if (bundledPayload != null) {
+                validateCommand(bundledPayload.command)
+                update(VivoWiredStage.DownloadingPayload, "正在读取内置 KSuRoot 载荷")
+                val source = KsuRootPayloadCatalog.fileFor(appContext, bundledPayload)
+                    ?: throw IOException("内置 KSuRoot 载荷校验失败")
+                payloadFile = copyBundledPayload(source)
+                payloadCommand = runtimeBundledCommand(bundledPayload)
+                suPath = LOCAL_PAYLOAD_SU_PATH
+                log("已选择内置 KSuRoot 载荷：${bundledPayload.library}")
             } else {
-                validateCommand(localRequest.command, local = true)
+                validateCommand(localRequest!!.command, local = true)
                 update(VivoWiredStage.DownloadingPayload, "正在读取本地提权文件")
                 payloadFile = copyLocalPayload(localRequest.uri)
                 payloadCommand = localRequest.command
@@ -134,15 +126,15 @@ internal class VivoWiredEscalator(
             log("目标设备完全开机，等待 5 秒后执行提权命令")
             delay(POST_BOOT_COMMAND_DELAY_MS)
 
-            val commandSource = if (localRequest == null) "设备专属" else "本地"
+            val commandSource = if (bundledPayload != null) "内置" else "本地"
             update(VivoWiredStage.ExecutingPayload, "正在执行${commandSource}提权命令")
             log("开始执行${commandSource}提权命令：$payloadCommand")
             val execution = client.shell(payloadCommand)
             log("${commandSource}提权命令输出：${execution.output.trim().ifBlank { "<空>" }}")
             log("${commandSource}提权命令退出码=${execution.exitCode}")
             if (execution.exitCode != 0) {
-                if (localRequest == null) {
-                    throw IOException("设备专属提权命令退出码=${execution.exitCode}")
+                if (bundledPayload != null) {
+                    throw IOException("内置提权命令退出码=${execution.exitCode}")
                 }
                 log("本地提权命令退出码=${execution.exitCode}，继续检查临时 root")
             }
@@ -395,112 +387,25 @@ internal class VivoWiredEscalator(
         }
     }
 
-    private suspend fun requestPayload(profile: DeviceProfile): WiredPayload {
-        return when (val result = awaitCompatibility(profile)) {
-            CompatibilityResult.EndpointNotConfigured -> throw IOException("提权文件接口尚未配置")
-            CompatibilityResult.DeviceNotSupported -> throw IOException("服务端没有匹配该 vivo/iQOO 设备的提权文件")
-            is CompatibilityResult.Failure -> throw IOException("服务端请求失败：${result.reason}")
-            is CompatibilityResult.Success -> parsePayload(result.responseBody)
-        }
-    }
-
-    private suspend fun downloadPayload(payload: WiredPayload): File {
-        val original = payload.resource
-        var candidate = original
-        var lastError: IOException? = null
-        repeat(MAX_DOWNLOAD_ROUTE_ATTEMPTS) {
-            try {
-                var progressBucket = -1
-                val file = downloader.download(candidate) { progress ->
-                    val nextBucket = (progress.percent / 10) * 10
-                    if (nextBucket != progressBucket) {
-                        progressBucket = nextBucket
-                        log("${candidate.routeName} 下载进度：${progress.percent}%")
-                    }
-                }
-                if (!awaitDownloadConfirmation(
-                        payload.payloadId,
-                        candidate.sessionId,
-                        candidate.attemptId,
-                    )
-                ) {
-                    log("下载成功，但线路统计确认未送达")
-                }
-                return file
-            } catch (error: IOException) {
-                lastError = error
-                log("线路 ${candidate.routeName} 下载失败，正在切换线路")
-                val next = when (val ticket = awaitNextTicket(
-                    payload.payloadId,
-                    candidate.sessionId,
-                    candidate.attemptId,
-                    downloadFailureReason(error),
-                )) {
-                    is ResourceTicketResult.Success -> ticket
-                    ResourceTicketResult.Exhausted -> throw IOException("所有提权文件线路均已尝试", error)
-                    is ResourceTicketResult.Failure -> throw IOException("切换下载线路失败：${ticket.reason}", error)
-                }
-                if (!next.sha256.equals(original.sha256, ignoreCase = true)) {
-                    throw IOException("新线路 SHA-256 与设备匹配结果不一致", error)
-                }
-                candidate = original.copy(
-                    url = next.url,
-                    route = next.route,
-                    routeName = next.routeName,
-                    sessionId = next.sessionId,
-                    attemptId = next.attemptId,
-                    hasMoreRoutes = next.hasMoreRoutes,
-                )
-            }
-        }
-        throw IOException("提权文件下载超过线路安全上限", lastError)
-    }
-
-    private fun parsePayload(body: String): WiredPayload {
-        val json = JSONObject(body)
-        if (json.optString("matchMode") != "exact") {
-            throw IOException("服务端未返回严格匹配结果")
-        }
-        val command = json.optString("payloadCommand").ifBlank { json.optString("payload_command") }
-        val payloadId = json.optString("payloadId").ifBlank { json.optString("payload_id") }.trim()
-        val suPath = json.optString("suPath")
-            .ifBlank { json.optString("su_path") }
-            .ifBlank { json.optString("stellar_su_path") }
-            .trim()
-        val resources = json.optJSONArray("resources") ?: throw IOException("服务端未返回提权文件")
-        if (payloadId.isBlank() || resources.length() != 1) throw IOException("服务端提权文件元数据无效")
-        val item = resources.getJSONObject(0)
-        val resource = PayloadResource(
-            name = item.optString("name").trim(),
-            url = item.optString("url").trim(),
-            sha256 = item.optString("sha256").trim().lowercase(),
-            size = item.optLong("size", 0L),
-            route = item.optString("route").trim(),
-            routeName = item.optString("routeName").trim().ifBlank { item.optString("route").trim() },
-            sessionId = item.optString("downloadSessionId").trim(),
-            attemptId = item.optString("downloadAttemptId").trim(),
-            hasMoreRoutes = item.optBoolean("hasMoreRoutes", false),
-        )
-        if (resource.name.isBlank() || resource.url.isBlank() ||
-            !SHA256_PATTERN.matches(resource.sha256) || resource.size !in 1..MAX_RESOURCE_BYTES ||
-            !STATE_ID_PATTERN.matches(resource.sessionId) || !STATE_ID_PATTERN.matches(resource.attemptId)
-        ) {
-            throw IOException("服务端提权文件元数据无效")
-        }
-        return WiredPayload(command.trim(), payloadId, suPath, resource)
-    }
-
     private fun validateCommand(command: String, local: Boolean = false) {
         if (command.isBlank() || command.toByteArray().size > MAX_COMMAND_BYTES ||
             command.indexOf('\u0000') >= 0 || FORBIDDEN_COMMAND_PATTERN.containsMatchIn(command)
         ) {
-            throw IOException(if (local) "本地提权命令无效" else "服务端返回的设备专属提权命令无效")
+            throw IOException(if (local) "本地提权命令无效" else "内置提权命令无效")
         }
     }
 
-    private fun validateSuPath(path: String) {
-        if (!SU_PATH_PATTERN.matches(path) || path.split('/').any { it == "." || it == ".." }) {
-            throw IOException("服务端返回的临时 su 路径无效")
+
+    private fun runtimeBundledCommand(payload: KsuRootPayload): String {
+        val command = payload.command
+            .replace("<payload>", REMOTE_PAYLOAD)
+            .replace("/data/local/tmp/preload.so", REMOTE_PAYLOAD)
+            .replace("/data/local/tmp/mi_mt6895_43499", REMOTE_PAYLOAD)
+            .replace("<su>", "/system/bin/id")
+        return if (command.contains("<") || command.contains(">")) {
+            "LD_PRELOAD=$REMOTE_PAYLOAD /system/bin/id"
+        } else {
+            command
         }
     }
 
@@ -508,6 +413,22 @@ internal class VivoWiredEscalator(
         val target = File.createTempFile("yhroot-ksu-", ".sh", appContext.cacheDir)
         return try {
             appContext.assets.open(ACTIVATION_ASSET).use { input ->
+                FileOutputStream(target).use { output ->
+                    input.copyTo(output)
+                    output.fd.sync()
+                }
+            }
+            target
+        } catch (error: Throwable) {
+            target.delete()
+            throw error
+        }
+    }
+
+    private fun copyBundledPayload(source: File): File {
+        val target = File.createTempFile("yhroot-wired-bundled-", ".bin", appContext.cacheDir)
+        return try {
+            source.inputStream().use { input ->
                 FileOutputStream(target).use { output ->
                     input.copyTo(output)
                     output.fd.sync()
@@ -550,45 +471,6 @@ internal class VivoWiredEscalator(
         }
     }
 
-    private suspend fun awaitCompatibility(profile: DeviceProfile): CompatibilityResult =
-        suspendCancellableCoroutine { continuation ->
-            compatibilityApi.check(profile) { result ->
-                if (continuation.isActive) continuation.resume(result)
-            }
-        }
-
-    private suspend fun awaitNextTicket(
-        resourceId: String,
-        sessionId: String,
-        attemptId: String,
-        reason: String,
-    ): ResourceTicketResult = suspendCancellableCoroutine { continuation ->
-        compatibilityApi.requestNextTicket(resourceId, sessionId, attemptId, reason) { result ->
-            if (continuation.isActive) continuation.resume(result)
-        }
-    }
-
-    private suspend fun awaitDownloadConfirmation(
-        resourceId: String,
-        sessionId: String,
-        attemptId: String,
-    ): Boolean = suspendCancellableCoroutine { continuation ->
-        compatibilityApi.confirmResourceDownload(resourceId, sessionId, attemptId) { result ->
-            if (continuation.isActive) continuation.resume(result)
-        }
-    }
-
-    private fun downloadFailureReason(error: IOException): String {
-        val message = error.message.orEmpty().lowercase()
-        return when {
-            "sha-256" in message || "sha256" in message -> "sha256_mismatch"
-            "size mismatch" in message -> "size_mismatch"
-            "timeout" in message || "timed out" in message -> "timeout"
-            "http " in message -> "http_error"
-            else -> "download_failed"
-        }
-    }
-
     private fun update(stage: VivoWiredStage, status: String) {
         state = state.copy(
             stage = stage,
@@ -627,29 +509,15 @@ internal class VivoWiredEscalator(
         publish(state)
     }
 
-    override fun close() {
-        compatibilityApi.close()
-        downloader.close()
-    }
-
-    private data class WiredPayload(
-        val command: String,
-        val payloadId: String,
-        val suPath: String,
-        val resource: PayloadResource,
-    )
+    override fun close() = Unit
 
     private companion object {
         val GETPROP_LINE = Regex("^\\[([^]]+)]\\s*:\\s*\\[(.*)]$")
         val VIVO_IDENTITIES = listOf("vivo", "iqoo", "bbk")
         val ROOT_UID_PATTERN = Regex("(?:^|\\s)uid=0(?:\\(root\\))?(?:\\s|\\z)")
         val FORBIDDEN_COMMAND_PATTERN = Regex("[;\\r\\n&]|\\|\\|")
-        val SU_PATH_PATTERN = Regex("^/(?:[A-Za-z0-9_+@.-]+/)*[A-Za-z0-9_+@.-]+$")
-        val SHA256_PATTERN = Regex("^[a-f0-9]{64}$")
-        val STATE_ID_PATTERN = Regex("^[a-f0-9]{24,64}$")
         const val MAX_COMMAND_BYTES = 1024
         const val MAX_RESOURCE_BYTES = 512L * 1024L * 1024L
-        const val MAX_DOWNLOAD_ROUTE_ATTEMPTS = 32
         const val MAX_LOG_LINES = 1_500
         const val BOOT_WAIT_ATTEMPTS = 90
         const val BOOT_WAIT_INTERVAL_MS = 2_000L
@@ -662,7 +530,7 @@ internal class VivoWiredEscalator(
         const val REMOTE_PAYLOAD = "/data/local/tmp/preload.so"
         const val LOCAL_PAYLOAD_SU_PATH = "/data/local/tmp/su"
         const val REMOTE_ACTIVATION_SCRIPT = "/data/local/tmp/yhroot_ksu_activate.sh"
-        const val ACTIVATION_SCRIPT_MODE = 0x81C0 // regular file + 0700
+        const val ACTIVATION_SCRIPT_MODE = 0x81C0
         const val ACTIVATION_ASSET = "yhroot_ksu_activate.sh"
     }
 }

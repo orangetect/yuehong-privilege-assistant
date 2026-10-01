@@ -82,6 +82,9 @@ import roro.stellar.manager.adb.PreferenceAdbKeyStore
 import roro.stellar.manager.adb.UsbAdbClient
 import roro.stellar.manager.ui.theme.StellarTheme
 import roro.stellar.yuehong.R
+import roro.stellar.yuehong.shell.KsuRootPayload
+import roro.stellar.yuehong.shell.KsuRootPayloadCatalog
+import roro.stellar.yuehong.ui.KsuRootPayloadDialog
 import roro.stellar.yuehong.ui.LocalPayloadCommandDialog
 import java.io.File
 import java.io.IOException
@@ -248,12 +251,12 @@ internal class VivoWiredViewModel(application: Application) : AndroidViewModel(a
         refreshDeviceState()
     }
 
-    fun start() {
-        startInternal(localRequest = null)
+    fun startWithBundledPayload(payload: KsuRootPayload) {
+        startInternal(bundledPayload = payload)
     }
 
     fun startWithLocalPayload(uri: Uri, command: String) {
-        startInternal(VivoWiredLocalRequest(uri, command.trim()))
+        startInternal(localRequest = VivoWiredLocalRequest(uri, command.trim()))
     }
 
     fun executeAdbCommand(input: String) {
@@ -522,7 +525,11 @@ internal class VivoWiredViewModel(application: Application) : AndroidViewModel(a
             else -> throw IllegalArgumentException("未知的本地 ADB 命令：$command")
         }
 
-    private fun startInternal(localRequest: VivoWiredLocalRequest?) {
+    private fun startInternal(
+        localRequest: VivoWiredLocalRequest? = null,
+        bundledPayload: KsuRootPayload? = null,
+    ) {
+        require((localRequest == null) != (bundledPayload == null))
         if (work?.isActive == true) return
         stopRequested = false
         discardConsoleClient()
@@ -531,7 +538,7 @@ internal class VivoWiredViewModel(application: Application) : AndroidViewModel(a
         }
         work = viewModelScope.launch(Dispatchers.IO) {
             try {
-                escalator.run(localRequest)
+                escalator.run(localRequest = localRequest, bundledPayload = bundledPayload)
             } finally {
                 activeClient = null
             }
@@ -765,6 +772,10 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val listState = rememberLazyListState()
+    val bundledPayloads = remember(context) {
+        runCatching { KsuRootPayloadCatalog.load(context) }.getOrDefault(emptyList())
+    }
+    var showPayloadPicker by remember { mutableStateOf(false) }
     var pendingLocalPayloadUri by remember { mutableStateOf<Uri?>(null) }
     var localPrivilegeCommand by rememberSaveable { mutableStateOf("") }
     var adbTestCommand by rememberSaveable { mutableStateOf("") }
@@ -901,7 +912,7 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
                 ) {
                     Button(
                         modifier = Modifier.weight(1f).height(48.dp),
-                        onClick = viewModel::start,
+                        onClick = { showPayloadPicker = true },
                     ) {
                         Text(
                             if (state.stage == VivoWiredStage.Failed) {
@@ -1099,6 +1110,17 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
                 pendingLocalPayloadUri = null
                 localPrivilegeCommand = ""
             },
+        )
+    }
+
+    if (showPayloadPicker) {
+        KsuRootPayloadDialog(
+            payloads = bundledPayloads,
+            onSelect = {
+                showPayloadPicker = false
+                viewModel.startWithBundledPayload(it)
+            },
+            onDismiss = { showPayloadPicker = false },
         )
     }
 }
