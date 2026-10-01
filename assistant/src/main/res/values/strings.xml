@@ -142,6 +142,9 @@
     <string name="mode_ghostlock_open">GhostLock</string>
     <string name="mode_stellar_title">General privilege assistant · Stellar</string>
     <string name="mode_stellar_body">Uses manually selected bundled KSuRoot payloads, local file import, wireless-debugging self-activation and the command console.</string>
+    <string name="mode_stellar_required">Wireless debugging activation is required first</string>
+    <string name="stellar_activation_required_body">Stellar is not active. Complete Wireless debugging activation before starting privilege escalation.</string>
+    <string name="open_stellar_activation">Open activation</string>
     <string name="mode_stellar_open">Stellar+KSuRoot</string>
     <string name="mode_ghostlock_kernel_required">6.x kernels only</string>
     <string name="mode_vivo_wired_open">vivo/iQOO wired privilege</string>
@@ -173,6 +176,7 @@
     <string name="builder_running">Building…</string>
     <string name="builder_run">Build artifact</string>
     <string name="builder_log_title">Build log</string>
+    <string name="builder_copy_log">Copy log</string>
     <string name="builder_log_empty">Build logs will appear here.</string>
     <string name="builder_section_result">Result</string>
     <string name="builder_output_size">Payload size: %1$d bytes</string>
@@ -188,4 +192,5 @@
     <string name="builder_vr_ko_hint">The device looks like vivo/iQOO; consider the vivo/iQOO scheme.</string>
     <string name="builder_patch_done">Patched %1$d constants, %2$d sites.</string>
     <string name="builder_error_title">Build failed</string>
+    <string name="builder_copy_error">Copy error</string>
 </resources>

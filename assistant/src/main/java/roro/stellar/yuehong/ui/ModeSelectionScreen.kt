@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,7 +41,8 @@ internal fun ModeSelectionScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = 520.dp)
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -49,31 +52,68 @@ internal fun ModeSelectionScreen(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            MotionButton(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                onClick = onOpenStellar,
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Text(
-                    text = stringResource(R.string.mode_stellar_open),
-                    fontWeight = FontWeight.SemiBold,
+                    text = stringResource(R.string.mode_stellar_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
                 )
+                Text(
+                    text = stringResource(R.string.mode_stellar_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(R.string.mode_stellar_required),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                MotionButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onOpenStellar,
+                ) {
+                    Text(
+                        text = stringResource(R.string.mode_stellar_open),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
-            MotionButton(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = ghostLockKernelAvailable,
-                onClick = onOpenGhostLock,
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                Text(
+                    text = stringResource(R.string.mode_ghostlock_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = stringResource(R.string.mode_ghostlock_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(R.string.mode_ghostlock_android_required),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = stringResource(R.string.mode_ghostlock_kernel_required),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (ghostLockKernelAvailable) MaterialTheme.colorScheme.primary else
+                        MaterialTheme.colorScheme.error,
+                )
+                MotionButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = ghostLockKernelAvailable,
+                    onClick = onOpenGhostLock,
                 ) {
                     Text(
                         text = stringResource(R.string.mode_ghostlock_open),
                         fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.mode_ghostlock_kernel_required),
-                        style = MaterialTheme.typography.labelSmall,
                     )
                 }
             }

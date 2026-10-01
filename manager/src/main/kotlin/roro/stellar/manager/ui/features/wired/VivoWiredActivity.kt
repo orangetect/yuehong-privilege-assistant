@@ -768,6 +768,7 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
     var pendingLocalPayloadUri by remember { mutableStateOf<Uri?>(null) }
     var localPrivilegeCommand by rememberSaveable { mutableStateOf("") }
     var adbTestCommand by rememberSaveable { mutableStateOf("") }
+    var adbToolsExpanded by rememberSaveable { mutableStateOf(false) }
     var pendingAdbFileCommand by remember { mutableStateOf<AdbConsoleCommand?>(null) }
     var pendingAdbDisplayCommand by remember { mutableStateOf("") }
     var pendingAdbPathCommand by rememberSaveable { mutableStateOf("") }
@@ -818,7 +819,11 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
         }
     }
     LaunchedEffect(state.logs.size) {
-        if (state.logs.isNotEmpty()) listState.scrollToItem(state.logs.lastIndex)
+        if (state.logs.isEmpty()) return@LaunchedEffect
+        val visibleLast = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+        if (visibleLast == null || visibleLast >= state.logs.lastIndex - 1) {
+            listState.scrollToItem(state.logs.lastIndex)
+        }
     }
 
     Scaffold(
@@ -890,28 +895,17 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
                     Text(stringResource(R.string.wired_vivo_stop))
                 }
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Button(
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    onClick = { localPayloadPicker.launch(arrayOf("*/*")) },
                 ) {
-                    Button(
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        onClick = viewModel::start,
-                    ) {
-                        Text(
-                            if (state.stage == VivoWiredStage.Failed) {
-                                stringResource(R.string.wired_vivo_retry)
-                            } else {
-                                stringResource(R.string.wired_vivo_start)
-                            },
-                        )
-                    }
-                    OutlinedButton(
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        onClick = { localPayloadPicker.launch(arrayOf("*/*")) },
-                    ) {
-                        Text(stringResource(R.string.use_local_payload))
-                    }
+                    Text(
+                        if (state.stage == VivoWiredStage.Failed) {
+                            stringResource(R.string.wired_vivo_retry)
+                        } else {
+                            stringResource(R.string.wired_vivo_start)
+                        },
+                    )
                 }
             }
 
@@ -919,78 +913,99 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        modifier = Modifier.weight(1f),
-                        value = adbTestCommand,
-                        onValueChange = { adbTestCommand = it },
-                        enabled = !state.running,
-                        singleLine = true,
-                        label = { Text("ADB 命令") },
-                    )
-                    Button(
-                        modifier = Modifier.height(56.dp),
-                        enabled = !state.running && adbTestCommand.isNotBlank(),
-                        onClick = {
-                            val parsed = runCatching { parseAdbConsoleCommand(adbTestCommand) }
-                                .getOrElse { error ->
-                                    viewModel.reportAdbCommandError(adbTestCommand, error.message.orEmpty())
-                                    return@Button
-                            }
-                            when (parsed) {
-                                is AdbConsoleCommand.Install,
-                                -> {
-                                    pendingAdbFileCommand = parsed
-                                    pendingAdbDisplayCommand = adbTestCommand
-                                    adbInputFilePicker.launch(arrayOf("*/*"))
-                                }
-                                is AdbConsoleCommand.Pull -> {
-                                    pendingAdbFileCommand = parsed
-                                    pendingAdbDisplayCommand = adbTestCommand
-                                    adbPullFileCreator.launch(parsed.localName)
-                                }
-                                is AdbConsoleCommand.Push -> {
-                                    val localFile = File(parsed.localHint)
-                                    if (localFile.isAbsolute && localFile.isFile && localFile.canRead()) {
-                                        viewModel.executeAdbCommand(adbTestCommand)
-                                    } else if (
-                                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                                        !Environment.isExternalStorageManager()
-                                    ) {
-                                        pendingAdbPathCommand = adbTestCommand
-                                        val appSettings = Intent(
-                                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                            Uri.parse("package:${context.packageName}"),
-                                        )
-                                        runCatching { allFilesAccessLauncher.launch(appSettings) }
-                                            .getOrElse {
-                                                val globalSettings = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                                                runCatching { allFilesAccessLauncher.launch(globalSettings) }
-                                                    .getOrElse { error ->
-                                                        pendingAdbPathCommand = ""
-                                                        viewModel.reportAdbCommandError(
-                                                            adbTestCommand,
-                                                            error.message ?: "无法打开本机文件访问设置",
-                                                        )
-                                                    }
-                                            }
-                                    } else {
-                                        viewModel.executeAdbCommand(adbTestCommand)
-                                    }
-                                }
-                                else -> viewModel.executeAdbCommand(adbTestCommand)
-                            }
-                        },
+                Column {
+                    TextButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { adbToolsExpanded = !adbToolsExpanded },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     ) {
-                        Text("执行")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                modifier = Modifier.weight(1f),
+                                text = "高级 ADB 工具",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(if (adbToolsExpanded) "▲" else "▼")
+                        }
+                    }
+                    if (adbToolsExpanded) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedTextField(
+                                modifier = Modifier.weight(1f),
+                                value = adbTestCommand,
+                                onValueChange = { adbTestCommand = it },
+                                enabled = !state.running,
+                                singleLine = true,
+                                label = { Text("ADB 命令") },
+                            )
+                            Button(
+                                modifier = Modifier.height(56.dp),
+                                enabled = !state.running && adbTestCommand.isNotBlank(),
+                                onClick = {
+                                    val parsed = runCatching { parseAdbConsoleCommand(adbTestCommand) }
+                                        .getOrElse { error ->
+                                            viewModel.reportAdbCommandError(adbTestCommand, error.message.orEmpty())
+                                            return@Button
+                                        }
+                                    when (parsed) {
+                                        is AdbConsoleCommand.Install,
+                                        -> {
+                                            pendingAdbFileCommand = parsed
+                                            pendingAdbDisplayCommand = adbTestCommand
+                                            adbInputFilePicker.launch(arrayOf("*/*"))
+                                        }
+                                        is AdbConsoleCommand.Pull -> {
+                                            pendingAdbFileCommand = parsed
+                                            pendingAdbDisplayCommand = adbTestCommand
+                                            adbPullFileCreator.launch(parsed.localName)
+                                        }
+                                        is AdbConsoleCommand.Push -> {
+                                            val localFile = File(parsed.localHint)
+                                            if (localFile.isAbsolute && localFile.isFile && localFile.canRead()) {
+                                                viewModel.executeAdbCommand(adbTestCommand)
+                                            } else if (
+                                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                                                !Environment.isExternalStorageManager()
+                                            ) {
+                                                pendingAdbPathCommand = adbTestCommand
+                                                val appSettings = Intent(
+                                                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                                    Uri.parse("package:${context.packageName}"),
+                                                )
+                                                runCatching { allFilesAccessLauncher.launch(appSettings) }
+                                                    .getOrElse {
+                                                        val globalSettings = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                                        runCatching { allFilesAccessLauncher.launch(globalSettings) }
+                                                            .getOrElse { error ->
+                                                                pendingAdbPathCommand = ""
+                                                                viewModel.reportAdbCommandError(
+                                                                    adbTestCommand,
+                                                                    error.message ?: "无法打开本机文件访问设置",
+                                                                )
+                                                            }
+                                                    }
+                                            } else {
+                                                viewModel.executeAdbCommand(adbTestCommand)
+                                            }
+                                        }
+                                        else -> viewModel.executeAdbCommand(adbTestCommand)
+                                    }
+                                },
+                            ) {
+                                Text("执行")
+                            }
+                        }
                     }
                 }
             }
-
             Card(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),

@@ -4,44 +4,31 @@ import roro.stellar.yuehong.R;
 import roro.stellar.yuehong.shell.GhostLockOtaApi;
 import java.io.ByteArrayOutputStream;
 
-import android.animation.Animator;
-import android.animation.AnimatorListenerAdapter;
-import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.ContentValues;
-import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Insets;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.MediaStore;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.MotionEvent;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.window.OnBackInvokedDispatcher;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -54,18 +41,17 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -75,7 +61,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -95,9 +80,6 @@ public class GhostLockActivity extends ComponentActivity {
     private static final String KSU_ACTIVATION_SCRIPT = ".ghostlock_root.sh";
     private static final String OFFSETS_JSON = "offsets.json";
     private static final String PROFILE_ASSET_DIR = "kernel_profiles";
-    private static final int REQ_IMPORT_OFFSETS = 1001;
-    private static final int REQ_PICK_BOOT = 1002;
-    private static final int REQ_PICK_XBL = 1003;
     private static final String PREFS = "ghostlock_prefs";
     private static final String PREF_CPU_PAIR = "cpu_pair";
     private static final String PREF_BUILTIN_OFFSET_STATUS = "builtin_offset_status";
@@ -118,7 +100,6 @@ public class GhostLockActivity extends ComponentActivity {
     private final StringBuilder logBuffer = new StringBuilder();
     private final List<int[]> cpuPairs = new ArrayList<>();
     private final List<String> cpuPairLabels = new ArrayList<>();
-    private final Map<View, ValueAnimator> viewAnimators = new HashMap<>();
     private TextView deviceInfo;
     private TextView logView;
     private ScrollView logScroll;
@@ -128,7 +109,6 @@ public class GhostLockActivity extends ComponentActivity {
     private GhostLockOtaApi ghostLockOtaApi;
     private View rootView;
     private int cpuPairIndex;
-    private boolean parseWantsXbl;
 
     /**
      * Returns the value when it looks like a real device name, else null.
@@ -572,256 +552,6 @@ public class GhostLockActivity extends ComponentActivity {
         }
     }
 
-    private void importOffsets() {
-        pickDocument(REQ_IMPORT_OFFSETS);
-    }
-
-    /** Export one OTA-parsed kernel entry as a shareable offsets.json file. */
-    private void exportOffsets() {
-        String current = System.getProperty("os.version", "");
-        Map<String, JSONObject> byRelease;
-        try {
-            byRelease = exportableEntries();
-        } catch (IOException e) {
-            appendLog("export offsets failed: " + e.getMessage());
-            toast(R.string.ghostlock_export_failed);
-            return;
-        }
-        if (byRelease.isEmpty()) {
-            toast(R.string.ghostlock_export_none);
-            return;
-        }
-        List<String> releases = new ArrayList<>(byRelease.keySet());
-        releases.sort(Comparator.comparing((String release) -> release.equals(current) ? 0 : 1).thenComparing(Comparator.naturalOrder()));
-        String[] labels = new String[releases.size()];
-        for (int i = 0; i < releases.size(); i++) {
-            String release = releases.get(i);
-            labels[i] = release.equals(current) ? getString(R.string.ghostlock_export_current_marker, release) : release;
-        }
-        new AlertDialog.Builder(this).setTitle(R.string.ghostlock_export_title).setItems(labels, (dialog, which) -> {
-            String release = releases.get(which);
-            JSONObject entry = byRelease.get(release);
-            worker.execute(() -> shareOffsets(entry, release));
-        }).setNegativeButton(R.string.ghostlock_cancel, null).show();
-    }
-
-    /** OTA-parsed entries currently stored by the app. */
-    private Map<String, JSONObject> exportableEntries() throws IOException {
-        Map<String, JSONObject> byRelease = new LinkedHashMap<>();
-        JSONArray imported = readOffsetsFile(new File(getFilesDir(), OFFSETS_JSON));
-        if (imported != null) {
-            for (int i = 0; i < imported.length(); i++) {
-                JSONObject entry = imported.optJSONObject(i);
-                if (entry == null) {
-                    continue;
-                }
-                String release = entry.optString("release", "");
-                if (release.isEmpty()) {
-                    continue;
-                }
-                byRelease.putIfAbsent(release, entry);
-            }
-        }
-        return byRelease;
-    }
-
-    /**
-     * Show the export button only when there is data worth sharing.
-     */
-    private void updateExportButton() {
-        // 设置/导入/导出面板已从产品界面移除；偏移由 OTA 链接自动生成。
-    }
-
-    private void cancelViewAnimation(View view) {
-        ValueAnimator running = viewAnimators.remove(view);
-        if (running != null) {
-            running.cancel();
-        }
-    }
-
-    /**
-     * Smoothly reveal a view: animate its height from 0 to the measured
-     * content height while fading in.  The measure uses the parent width and
-     * an unconstrained height, so padding and child margins are included in
-     * the final size.
-     */
-    private void animateShow(View view) {
-        cancelViewAnimation(view);
-        final ViewGroup.LayoutParams lp = view.getLayoutParams();
-        int width = view.getParent() instanceof View ? ((View) view.getParent()).getWidth() : 0;
-        view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        final int target = Math.max(view.getMeasuredHeight(), 1);
-        lp.height = 0;
-        view.setVisibility(View.VISIBLE);
-        view.setAlpha(0f);
-        ValueAnimator anim = ValueAnimator.ofInt(0, target);
-        anim.addUpdateListener(a -> {
-            lp.height = (int) a.getAnimatedValue();
-            view.setAlpha(a.getAnimatedFraction());
-            view.requestLayout();
-        });
-        anim.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                view.setAlpha(1f);
-                view.requestLayout();
-            }
-        });
-        anim.setDuration(220);
-        viewAnimators.put(view, anim);
-        anim.start();
-    }
-
-    /**
-     * Smoothly hide a view: animate its height to 0 while fading out.
-     */
-    private void animateHide(View view) {
-        cancelViewAnimation(view);
-        final ViewGroup.LayoutParams lp = view.getLayoutParams();
-        final int start = view.getHeight();
-        ValueAnimator anim = ValueAnimator.ofInt(start, 0);
-        anim.addUpdateListener(a -> {
-            lp.height = (int) a.getAnimatedValue();
-            view.setAlpha(1f - a.getAnimatedFraction());
-            view.requestLayout();
-        });
-        anim.addListener(new AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(Animator animation) {
-                view.setVisibility(View.GONE);
-                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
-                view.setAlpha(1f);
-            }
-        });
-        anim.setDuration(180);
-        viewAnimators.put(view, anim);
-        anim.start();
-    }
-
-    /**
-     * Write one entry to Downloads and open the system share sheet.
-     */
-    private void shareOffsets(JSONObject entry, String release) {
-        try {
-            JSONArray payload = new JSONArray();
-            payload.put(entry);
-            String safeRelease = release.replaceAll("[^A-Za-z0-9._-]", "_");
-            String name = "offsets-" + safeRelease + ".json";
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.Downloads.DISPLAY_NAME, name);
-            values.put(MediaStore.Downloads.MIME_TYPE, "application/json");
-            Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-            if (uri == null) {
-                throw new IOException("cannot create download entry");
-            }
-            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
-                if (out == null) {
-                    throw new IOException("cannot open download entry");
-                }
-                out.write(payload.toString(2).getBytes(StandardCharsets.UTF_8));
-            }
-            appendLog("exported offsets: " + name);
-            final Uri sharedUri = uri;
-            ui.post(() -> {
-                Intent send = new Intent(Intent.ACTION_SEND);
-                send.setType("application/json");
-                send.putExtra(Intent.EXTRA_STREAM, sharedUri);
-                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                startActivity(Intent.createChooser(send, getString(R.string.ghostlock_export_share)));
-            });
-        } catch (Throwable t) {
-            appendLog("export offsets failed: " + t.getMessage());
-            ui.post(() -> toast(R.string.ghostlock_export_failed));
-        }
-    }
-
-    private void pickDocument(int requestCode) {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        startActivityForResult(intent, requestCode);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode != RESULT_OK || data == null) {
-            return;
-        }
-        if (requestCode == REQ_PICK_BOOT || requestCode == REQ_PICK_XBL) {
-            handleParsePick(requestCode, data);
-            return;
-        }
-        if (requestCode != REQ_IMPORT_OFFSETS) {
-            return;
-        }
-        Uri uri = data.getData();
-        if (uri == null) {
-            toast(R.string.ghostlock_import_failed);
-            return;
-        }
-        worker.execute(() -> {
-            File target = new File(getFilesDir(), OFFSETS_JSON);
-            try {
-                File tmp = new File(getFilesDir(), "offsets_import.tmp");
-                copyUriToFile(uri, tmp);
-                JSONArray imported;
-                try {
-                    imported = readOffsetsFile(tmp);
-                } finally {
-                    tmp.delete();
-                }
-                if (imported == null) {
-                    throw new IOException("not a valid offsets.json");
-                }
-                JSONArray existing = readOffsetsFile(target);
-                if (existing == null) {
-                    existing = new JSONArray();
-                }
-                final JSONArray existingEntries = existing;
-                final JSONArray freshEntries = imported;
-                List<String> overlaps = overlappingReleases(existingEntries, freshEntries);
-                if (overlaps.isEmpty()) {
-                    mergeAndSave(target, existingEntries, freshEntries, false);
-                    ui.post(this::finishImport);
-                } else {
-                    ui.post(() -> promptOverwrite(overlaps, existingEntries, freshEntries, target));
-                }
-            } catch (IOException e) {
-                appendLog("import offsets failed: " + e.getMessage());
-                ui.post(() -> {
-                    applyKernelStatus();
-                    toast(R.string.ghostlock_import_failed);
-                });
-            }
-        });
-    }
-
-    private void parseOffsets() {
-        new AlertDialog.Builder(this).setTitle(R.string.ghostlock_parse_title).setItems(new CharSequence[]{getString(R.string.ghostlock_parse_option_boot), getString(R.string.ghostlock_parse_option_boot_xbl),}, (dialog, which) -> {
-            switch (which) {
-                case 0:
-                    pickParseBoot(false);
-                    break;
-                case 1:
-                    pickParseBoot(true);
-                    break;
-            }
-        }).setNegativeButton(R.string.ghostlock_cancel, null).show();
-    }
-
-    private void promptParseUrl() {
-        String url = otaUrlInput.getText().toString().trim();
-        if (url.isEmpty() || !(url.startsWith("http://") || url.startsWith("https://"))) {
-            appendLog("error: invalid OTA URL: " + url);
-            toast(R.string.ghostlock_parse_failed_url);
-            return;
-        }
-        appendLog("parse OTA: " + url);
-        runExtract(url, null);
-    }
-
     private void startAutomaticPrivilege() {
         if (running.get() || !automaticFlowRunning.compareAndSet(false, true)) {
             return;
@@ -880,55 +610,6 @@ public class GhostLockActivity extends ComponentActivity {
         });
     }
 
-    private void pickParseBoot(boolean withXbl) {
-        parseWantsXbl = withXbl;
-        if (withXbl) {
-            toast(R.string.ghostlock_parse_pick_boot_hint);
-        }
-        pickDocument(REQ_PICK_BOOT);
-    }
-
-    private void handleParsePick(int requestCode, Intent data) {
-        Uri uri = data.getData();
-        if (uri == null) {
-            return;
-        }
-        worker.execute(() -> {
-            try {
-                File workDir = getFilesDir();
-                File boot = new File(workDir, "boot.img");
-                if (requestCode == REQ_PICK_BOOT) {
-                    copyUriToFile(uri, boot);
-                    appendLog("boot.img ready: " + boot.getAbsolutePath());
-                    if (parseWantsXbl) {
-                        ui.post(() -> {
-                            toast(R.string.ghostlock_parse_pick_xbl_hint);
-                            pickDocument(REQ_PICK_XBL);
-                        });
-                    } else {
-                        ui.post(() -> runExtract(boot.getAbsolutePath(), null));
-                    }
-                } else {
-                    File xbl = new File(workDir, "xbl_config.img");
-                    copyUriToFile(uri, xbl);
-                    appendLog("xbl_config.img ready: " + xbl.getAbsolutePath());
-                    ui.post(() -> runExtract(boot.getAbsolutePath(), xbl));
-                }
-            } catch (IOException e) {
-                appendLog("parse error: " + e.getMessage());
-            }
-        });
-    }
-
-    private void copyUriToFile(Uri uri, File target) throws IOException {
-        try (InputStream in = getContentResolver().openInputStream(uri); OutputStream out = new FileOutputStream(target, false)) {
-            if (in == null) {
-                throw new IOException("cannot open " + uri);
-            }
-            copyStream(in, out);
-        }
-    }
-
     /**
      * Parse an offsets file (single object or array) into an array of entries.
      */
@@ -973,26 +654,6 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     /**
-     * Releases already present in the store that the import also contains.
-     */
-    private List<String> overlappingReleases(JSONArray existing, JSONArray imported) {
-        Set<String> known = importedReleases(existing);
-        List<String> overlaps = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (int i = 0; i < imported.length(); i++) {
-            JSONObject entry = imported.optJSONObject(i);
-            if (entry == null) {
-                continue;
-            }
-            String release = entry.optString("release", "");
-            if (!release.isEmpty() && known.contains(release) && seen.add(release)) {
-                overlaps.add(release);
-            }
-        }
-        return overlaps;
-    }
-
-    /**
      * Merge `imported` into `existing` and write the result back.  With
      * overwrite=true imported entries replace stored entries with the same
      * release; otherwise the stored values are kept.
@@ -1034,46 +695,24 @@ public class GhostLockActivity extends ComponentActivity {
         }
     }
 
-    /** Ask whether stored OTA offsets should be replaced. */
-    private void promptOverwrite(List<String> replaced, JSONArray existing, JSONArray imported, File target) {
-        new AlertDialog.Builder(this).setTitle(R.string.ghostlock_overwrite_title).setMessage(getString(R.string.ghostlock_overwrite_message, String.join("\n", replaced))).setPositiveButton(R.string.ghostlock_overwrite_yes, (dialog, which) -> worker.execute(() -> {
-            try {
-                mergeAndSave(target, existing, imported, true);
-                ui.post(this::finishImport);
-            } catch (IOException e) {
-                appendLog("import offsets failed: " + e.getMessage());
-                ui.post(() -> {
-                    applyKernelStatus();
-                    toast(R.string.ghostlock_import_failed);
-                });
-            }
-        })).setNegativeButton(R.string.ghostlock_cancel, null).show();
-    }
-
-    private void finishImport() {
-        applyKernelStatus();
-        toast(R.string.ghostlock_import_success);
-        appendLog("offsets.json imported: " + new File(getFilesDir(), OFFSETS_JSON).getAbsolutePath());
-    }
-
-    /**
-     * Run the extractor on an OTA URL or local boot/xbl files; writes offsets.json on success.
-     */
-    private void runExtract(String input, File xblFile) {
-        runExtract(input, xblFile, false);
-    }
-
     private void runExtract(String input, File xblFile, boolean automaticFlow) {
         worker.execute(() -> {
             int code = 1;
+            File downloadedOta = null;
             try {
                 File binary = new File(getApplicationInfo().nativeLibraryDir, EXTRACT_NAME);
                 if (!binary.isFile()) {
                     throw new IOException("missing native binary: " + binary.getAbsolutePath());
                 }
                 File workDir = getFilesDir();
+                String extractInput = input;
+                if (isHttpUrl(input)) {
+                    downloadedOta = downloadOta(input, workDir);
+                    extractInput = downloadedOta.getAbsolutePath();
+                    appendLog("OTA downloaded: " + extractInput);
+                }
                 List<String> args = new ArrayList<>();
-                args.add(input);
+                args.add(extractInput);
                 if (xblFile != null) {
                     args.add("--xbl-config");
                     args.add(xblFile.getAbsolutePath());
@@ -1146,8 +785,63 @@ public class GhostLockActivity extends ComponentActivity {
                     ui.post(() -> setRunState(RunState.FAILED));
                 }
                 ui.post(() -> toast(R.string.ghostlock_parse_failed));
+            } finally {
+                if (downloadedOta != null && downloadedOta.isFile() && !downloadedOta.delete()) {
+                    downloadedOta.deleteOnExit();
+                }
             }
         });
+    }
+
+    private static boolean isHttpUrl(String value) {
+        return value != null && (value.startsWith("http://") || value.startsWith("https://"));
+    }
+
+    /** Download an OTA to app-private storage before passing it to the native extractor. */
+    private File downloadOta(String source, File workDir) throws IOException {
+        File target = new File(workDir, "ghostlock-ota.zip");
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL(source);
+            for (int redirect = 0; redirect < 5; redirect++) {
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setInstanceFollowRedirects(false);
+                connection.setConnectTimeout(30000);
+                connection.setReadTimeout(120000);
+                connection.setRequestProperty("Accept", "*/*");
+                int status = connection.getResponseCode();
+                if (status >= 300 && status < 400) {
+                    String location = connection.getHeaderField("Location");
+                    connection.disconnect();
+                    connection = null;
+                    if (location == null || location.isEmpty()) {
+                        throw new IOException("OTA redirect has no location");
+                    }
+                    url = new URL(url, location);
+                    continue;
+                }
+                if (status != HttpURLConnection.HTTP_OK) {
+                    throw new IOException("OTA download failed: HTTP " + status);
+                }
+                try (InputStream in = connection.getInputStream();
+                     OutputStream out = new FileOutputStream(target, false)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    int read;
+                    while ((read = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, read);
+                    }
+                }
+                if (!target.isFile() || target.length() == 0) {
+                    throw new IOException("OTA download produced an empty file");
+                }
+                return target;
+            }
+            throw new IOException("too many OTA redirects");
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
     }
 
     /**

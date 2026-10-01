@@ -1,5 +1,7 @@
 package roro.stellar.yuehong.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +56,13 @@ fun PayloadBuilderScreen(controller: PayloadBuildController) {
     var showError by remember { mutableStateOf<String?>(null) }
     val errorScrollState = rememberScrollState()
     val logScrollState = rememberScrollState()
+    val logAtBottom by remember {
+        derivedStateOf { logScrollState.maxValue - logScrollState.value < 32 }
+    }
+    fun copyToClipboard(label: String, text: String) {
+        context.getSystemService(ClipboardManager::class.java)
+            ?.setPrimaryClip(ClipData.newPlainText(label, text))
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         val (name, size) = context.contentResolver.query(
@@ -75,6 +85,11 @@ fun PayloadBuilderScreen(controller: PayloadBuildController) {
             controller.clearError()
         }
     }
+    LaunchedEffect(current.log.size) {
+        if (logAtBottom) {
+            logScrollState.scrollTo(logScrollState.maxValue)
+        }
+    }
     if (showError != null) {
         AlertDialog(
             onDismissRequest = { showError = null },
@@ -91,7 +106,18 @@ fun PayloadBuilderScreen(controller: PayloadBuildController) {
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showError = null }) { Text(stringResource(R.string.ok)) } },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = { copyToClipboard("payload-builder-error", showError.orEmpty()) },
+                    ) {
+                        Text(stringResource(R.string.builder_copy_error))
+                    }
+                    TextButton(onClick = { showError = null }) {
+                        Text(stringResource(R.string.ok))
+                    }
+                }
+            },
         )
     }
 
@@ -213,11 +239,27 @@ fun PayloadBuilderScreen(controller: PayloadBuildController) {
 
             item {
                 BuilderCard {
-                    Text(
-                        text = stringResource(R.string.builder_log_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.builder_log_title),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        TextButton(
+                            enabled = current.log.isNotEmpty(),
+                            onClick = {
+                                copyToClipboard(
+                                    "payload-builder-log",
+                                    current.log.joinToString("\n"),
+                                )
+                            },
+                        ) {
+                            Text(stringResource(R.string.builder_copy_log))
+                        }
+                    }
                     SelectionContainer {
                         Box(
                             modifier = Modifier
