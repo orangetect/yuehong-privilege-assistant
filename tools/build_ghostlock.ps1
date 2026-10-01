@@ -117,7 +117,7 @@ try {
     $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = $env:CC_aarch64_linux_android
     $cargoArgs = @()
     if ($prebuilt -eq 'windows-x86_64') { $cargoArgs += '+nightly-x86_64-pc-windows-gnu' }
-    $cargoArgs += @('build', '--release', '--target', 'aarch64-linux-android', '--locked')
+    $cargoArgs += @('build', '--release', '--target', 'aarch64-linux-android', '--locked', '--features', 'http')
     if ($Offline) { $cargoArgs += '--offline' }
     Push-Location -LiteralPath $extractRoot
     try { Invoke-Native 'cargo' $cargoArgs } finally { Pop-Location }
