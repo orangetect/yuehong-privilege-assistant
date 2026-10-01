@@ -97,7 +97,6 @@ fun LocalAdbScreen(
     controller: StellarShellController,
     escalator: PrivilegeEscalator,
     embedded: Boolean = false,
-    onOpenActivation: () -> Unit = {},
 ) {
     var command by rememberSaveable { mutableStateOf("") }
     var localPrivilegeCommand by rememberSaveable { mutableStateOf("") }
@@ -160,8 +159,6 @@ fun LocalAdbScreen(
             EscalationCard(
                 escalator = escalator,
                 enabled = !controller.isRunning && controller.status == StellarStatus.Granted,
-                activationRequired = controller.status != StellarStatus.Granted,
-                onOpenActivation = onOpenActivation,
                 onSelectBundledPayload = { showPayloadPicker = true },
                 onSelectLocalPayload = { localPayloadPicker.launch(arrayOf("*/*")) },
                 compact = embedded,
@@ -303,8 +300,6 @@ private fun LocalAdbHeader(
 private fun EscalationCard(
     escalator: PrivilegeEscalator,
     enabled: Boolean,
-    activationRequired: Boolean,
-    onOpenActivation: () -> Unit,
     onSelectBundledPayload: () -> Unit,
     onSelectLocalPayload: () -> Unit,
     compact: Boolean,
@@ -380,23 +375,6 @@ private fun EscalationCard(
 
             AnimatedVisibility(visible = running, enter = fadeIn(), exit = fadeOut()) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = accent)
-            }
-
-            if (activationRequired && !running) {
-                Text(
-                    text = stringResource(R.string.stellar_activation_required_body),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                MotionButton(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onOpenActivation,
-                ) {
-                    Text(
-                        text = stringResource(R.string.open_stellar_activation),
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
             }
 
             Row(

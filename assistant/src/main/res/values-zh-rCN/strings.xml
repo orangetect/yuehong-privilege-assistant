@@ -140,9 +140,6 @@
     <string name="mode_ghostlock_open">GhostLock</string>
     <string name="mode_stellar_title">通用提权助手 · Stellar</string>
     <string name="mode_stellar_body">使用本地 KSuRoot 载荷手动选择、本地文件导入、无线调试自激活和命令控制台。</string>
-    <string name="mode_stellar_required">需要先完成无线调试激活</string>
-    <string name="stellar_activation_required_body">Stellar 尚未激活，先完成无线调试激活后才能开始设备提权。</string>
-    <string name="open_stellar_activation">去激活页</string>
     <string name="mode_stellar_open">Stellar+KSuRoot</string>
     <string name="mode_ghostlock_kernel_required">仅支持 6 系内核</string>
     <string name="mode_vivo_wired_open">vivo/iQOO 有线提权</string>

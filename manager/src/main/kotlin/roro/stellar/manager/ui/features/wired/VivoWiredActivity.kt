@@ -895,17 +895,28 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
                     Text(stringResource(R.string.wired_vivo_stop))
                 }
             } else {
-                Button(
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    onClick = { localPayloadPicker.launch(arrayOf("*/*")) },
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        if (state.stage == VivoWiredStage.Failed) {
-                            stringResource(R.string.wired_vivo_retry)
-                        } else {
-                            stringResource(R.string.wired_vivo_start)
-                        },
-                    )
+                    Button(
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        onClick = viewModel::start,
+                    ) {
+                        Text(
+                            if (state.stage == VivoWiredStage.Failed) {
+                                stringResource(R.string.wired_vivo_retry)
+                            } else {
+                                stringResource(R.string.wired_vivo_start)
+                            },
+                        )
+                    }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        onClick = { localPayloadPicker.launch(arrayOf("*/*")) },
+                    ) {
+                        Text(stringResource(R.string.use_local_payload))
+                    }
                 }
             }
 

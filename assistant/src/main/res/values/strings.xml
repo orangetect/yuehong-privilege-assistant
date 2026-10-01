@@ -142,9 +142,6 @@
     <string name="mode_ghostlock_open">GhostLock</string>
     <string name="mode_stellar_title">General privilege assistant · Stellar</string>
     <string name="mode_stellar_body">Uses manually selected bundled KSuRoot payloads, local file import, wireless-debugging self-activation and the command console.</string>
-    <string name="mode_stellar_required">Wireless debugging activation is required first</string>
-    <string name="stellar_activation_required_body">Stellar is not active. Complete Wireless debugging activation before starting privilege escalation.</string>
-    <string name="open_stellar_activation">Open activation</string>
     <string name="mode_stellar_open">Stellar+KSuRoot</string>
     <string name="mode_ghostlock_kernel_required">6.x kernels only</string>
     <string name="mode_vivo_wired_open">vivo/iQOO wired privilege</string>

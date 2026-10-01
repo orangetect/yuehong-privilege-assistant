@@ -244,7 +244,6 @@ private fun StellarWorkspaceScreen(appsViewModel: AppsViewModel) {
                     controller = controller,
                     escalator = escalator,
                     embedded = true,
-                    onOpenActivation = { selectedTab = 0 },
                 )
 
                 else -> PayloadBuilderScreen(builderController)
