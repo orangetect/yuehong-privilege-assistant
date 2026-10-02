@@ -3,7 +3,6 @@
 SCRIPT_PATH="$0"
 DATA_APP_ROOT="${YHROOT_DATA_APP_ROOT:-/data/app}"
 TMP_ROOT="${YHROOT_TMP_ROOT:-/data/local/tmp}"
-SELINUX_ENFORCE_PATH="${YHROOT_SELINUX_ENFORCE_PATH:-/sys/fs/selinux/enforce}"
 KSUD=
 KSU_APK=
 KSU_PACKAGE=
@@ -83,12 +82,16 @@ if ! grep -q kernelsu /proc/modules 2>/dev/null; then
     echo '[!] ksud exists but is not executable' | tee -a "$LOG"
     exit 1
   fi
+  if [ -z "$KSU_PACKAGE" ]; then
+    echo '[!] KernelSU package name unavailable; cannot late-load' | tee -a "$LOG"
+    exit 1
+  fi
   KVER=$(uname -r | cut -d. -f1-2)
   AVER=$(uname -r | grep -o 'android[0-9]*' | head -1)
   KMI="${AVER}-${KVER}"
   if [ -z "$AVER" ] || [ -z "$KVER" ]; then KMI=android15-6.6; fi
-  echo "[*] late-load kmi=$KMI" >>"$LOG"
-  "$KSUD" late-load --kmi "$KMI" --allow-shell >>"$LOG" 2>&1
+  echo "[*] late-load kmi=$KMI package=$KSU_PACKAGE" >>"$LOG"
+  "$KSUD" late-load --kmi "$KMI" --allow-shell --package-name "$KSU_PACKAGE" >>"$LOG" 2>&1
   LATE_LOAD_RC=$?
   echo "[*] late-load exit=$LATE_LOAD_RC" >>"$LOG"
   if [ "$LATE_LOAD_RC" -ne 0 ]; then
@@ -109,8 +112,11 @@ fi
 
 echo '[+] KernelSU module loaded' | tee -a "$LOG"
 echo "[*] kernelsu.ko loaded; root pid=$$ uid=$(id -u)" >>"$LOG"
-echo 0 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
-echo "[*] setenforce 0 rc=$?" >>"$LOG"
+
+echo "[*] activation preparation complete; cleaning temporary files" >>"$LOG"
+cleanup_tmp
+CLEANUP_RC=$?
+echo "[*] temporary cleanup rc=$CLEANUP_RC" >>"$LOG"
 
 FIXUP_RC=1
 for i in $(seq 1 10); do
@@ -125,16 +131,12 @@ done
 
 echo "[*] policy fixup rc=$FIXUP_RC" >>"$LOG"
 if [ "$FIXUP_RC" -eq 0 ]; then
-  echo "[*] activation complete; cleaning temporary files" >>"$LOG"
-  cleanup_tmp
-  CLEANUP_RC=$?
-  echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
+  echo '[+] activation complete' | tee -a "$LOG"
   if [ "$CLEANUP_RC" -ne 0 ]; then
     exit "$CLEANUP_RC"
   fi
   exit 0
 fi
 
-echo '[!] fixup failed; SELinux left permissive' | tee -a "$LOG"
-cleanup_tmp
+echo '[!] SELinux policy reload failed' | tee -a "$LOG"
 exit "$FIXUP_RC"
