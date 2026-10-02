@@ -3,6 +3,7 @@
 SCRIPT_PATH="$0"
 DATA_APP_ROOT="${YHROOT_DATA_APP_ROOT:-/data/app}"
 TMP_ROOT="${YHROOT_TMP_ROOT:-/data/local/tmp}"
+SELINUX_ENFORCE_PATH="${YHROOT_SELINUX_ENFORCE_PATH:-/sys/fs/selinux/enforce}"
 KSUD=
 KSU_APK=
 KSU_PACKAGE=
@@ -112,6 +113,8 @@ fi
 
 echo '[+] KernelSU module loaded' | tee -a "$LOG"
 echo "[*] kernelsu.ko loaded; root pid=$$ uid=$(id -u)" >>"$LOG"
+echo 0 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
+echo "[*] setenforce 0 rc=$?" >>"$LOG"
 
 echo "[*] activation preparation complete; cleaning temporary files" >>"$LOG"
 cleanup_tmp
@@ -132,11 +135,13 @@ done
 echo "[*] policy fixup rc=$FIXUP_RC" >>"$LOG"
 if [ "$FIXUP_RC" -eq 0 ]; then
   echo '[+] activation complete' | tee -a "$LOG"
+  echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
+  echo "[*] setenforce 1 rc=$?" >>"$LOG"
   if [ "$CLEANUP_RC" -ne 0 ]; then
     exit "$CLEANUP_RC"
   fi
   exit 0
 fi
 
-echo '[!] SELinux policy reload failed' | tee -a "$LOG"
+echo '[!] fixup failed; SELinux left permissive' | tee -a "$LOG"
 exit "$FIXUP_RC"
