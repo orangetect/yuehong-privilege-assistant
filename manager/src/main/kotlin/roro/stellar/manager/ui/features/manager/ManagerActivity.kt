@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -40,11 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import roro.stellar.yuehong.payloadbuilder.PayloadBuildController
 import roro.stellar.yuehong.shell.PrivilegeEscalator
 import roro.stellar.yuehong.shell.StellarShellController
 import roro.stellar.yuehong.ui.LocalAdbScreen
-import roro.stellar.yuehong.ui.PayloadBuilderScreen
 import roro.stellar.manager.R
 import roro.stellar.manager.domain.apps.AppsViewModel
 import roro.stellar.manager.domain.apps.appsViewModel
@@ -182,21 +179,16 @@ private fun StellarWorkspaceScreen(appsViewModel: AppsViewModel) {
     val escalator = remember(context.applicationContext) {
         PrivilegeEscalator(context.applicationContext, controller)
     }
-    val builderController = remember(context.applicationContext) {
-        PayloadBuildController(context.applicationContext)
-    }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val tabs = listOf(
         Triple(R.string.stellar_tab_access, Icons.Filled.Wifi, "access"),
         Triple(R.string.stellar_tab_privilege, Icons.Filled.Security, "privilege"),
-        Triple(R.string.stellar_tab_builder, Icons.Filled.Build, "builder"),
     )
 
-    DisposableEffect(controller, escalator, builderController) {
+    DisposableEffect(controller, escalator) {
         controller.register()
         onDispose {
             escalator.close()
-            builderController.close()
             controller.close()
         }
     }
@@ -246,7 +238,11 @@ private fun StellarWorkspaceScreen(appsViewModel: AppsViewModel) {
                     embedded = true,
                 )
 
-                else -> PayloadBuilderScreen(builderController)
+                else -> LocalAdbScreen(
+                    controller = controller,
+                    escalator = escalator,
+                    embedded = true,
+                )
             }
         }
     }

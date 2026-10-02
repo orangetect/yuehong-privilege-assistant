@@ -78,8 +78,8 @@ import androidx.compose.ui.unit.dp
 import roro.stellar.yuehong.R
 import roro.stellar.yuehong.shell.EscalationResult
 import roro.stellar.yuehong.shell.EscalationStage
-import roro.stellar.yuehong.shell.KsuRootPayload
-import roro.stellar.yuehong.shell.KsuRootPayloadCatalog
+import roro.stellar.yuehong.shell.BundledPayload
+import roro.stellar.yuehong.shell.BundledPayloadCatalog
 import roro.stellar.yuehong.shell.OutputLine
 import roro.stellar.yuehong.shell.PrivilegeEscalator
 import roro.stellar.yuehong.shell.StellarShellController
@@ -105,7 +105,7 @@ fun LocalAdbScreen(
     var showEscalationResult by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val bundledPayloads = remember(context) {
-        runCatching { KsuRootPayloadCatalog.load(context) }.getOrDefault(emptyList())
+        runCatching { BundledPayloadCatalog.load(context) }.getOrDefault(emptyList())
     }
     val terminalScrollState = rememberScrollState()
     val escalationRunning = escalator.stage !in setOf(EscalationStage.Idle, EscalationStage.Done)
@@ -200,7 +200,7 @@ fun LocalAdbScreen(
     }
 
     if (showPayloadPicker) {
-        KsuRootPayloadDialog(
+        BundledPayloadDialog(
             payloads = bundledPayloads,
             onSelect = {
                 showPayloadPicker = false
@@ -439,9 +439,9 @@ private fun EscalationCard(
 }
 
 @Composable
-fun KsuRootPayloadDialog(
-    payloads: List<KsuRootPayload>,
-    onSelect: (KsuRootPayload) -> Unit,
+fun BundledPayloadDialog(
+    payloads: List<BundledPayload>,
+    onSelect: (BundledPayload) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -454,7 +454,7 @@ fun KsuRootPayloadDialog(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.ksuroot_payload_dialog_title)) },
+        title = { Text(stringResource(R.string.bundled_payload_dialog_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
@@ -462,10 +462,10 @@ fun KsuRootPayloadDialog(
                     value = query,
                     onValueChange = { query = it },
                     singleLine = true,
-                    label = { Text(stringResource(R.string.ksuroot_payload_search)) },
+                    label = { Text(stringResource(R.string.bundled_payload_search)) },
                 )
                 Text(
-                    text = stringResource(R.string.ksuroot_payload_count, filtered.size),
+                    text = stringResource(R.string.bundled_payload_count, filtered.size),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

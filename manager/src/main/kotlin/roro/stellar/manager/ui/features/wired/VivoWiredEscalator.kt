@@ -6,8 +6,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import roro.stellar.manager.adb.UsbAdbClient
 import roro.stellar.yuehong.shell.DeviceProfile
-import roro.stellar.yuehong.shell.KsuRootPayload
-import roro.stellar.yuehong.shell.KsuRootPayloadCatalog
+import roro.stellar.yuehong.shell.BundledPayload
+import roro.stellar.yuehong.shell.BundledPayloadCatalog
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -43,7 +43,7 @@ internal data class VivoWiredLocalRequest(
     val command: String,
 )
 
-/** USB-host ADB privilege flow using a bundled KSuRoot payload or a user-selected local payload. */
+/** USB-host ADB privilege flow using a bundled privilege file or a user-selected local file. */
 internal class VivoWiredEscalator(
     context: Context,
     private val connectTarget: suspend (waitingAfterReboot: Boolean) -> UsbAdbClient,
@@ -54,7 +54,7 @@ internal class VivoWiredEscalator(
 
     suspend fun run(
         localRequest: VivoWiredLocalRequest? = null,
-        bundledPayload: KsuRootPayload? = null,
+        bundledPayload: BundledPayload? = null,
     ) {
         require((localRequest == null) != (bundledPayload == null)) { "必须选择内置载荷或本地文件" }
         var client: UsbAdbClient? = null
@@ -80,13 +80,13 @@ internal class VivoWiredEscalator(
             val suPath: String
             if (bundledPayload != null) {
                 validateCommand(bundledPayload.command)
-                update(VivoWiredStage.DownloadingPayload, "正在读取内置 KSuRoot 载荷")
-                val source = KsuRootPayloadCatalog.fileFor(appContext, bundledPayload)
-                    ?: throw IOException("内置 KSuRoot 载荷校验失败")
+                update(VivoWiredStage.DownloadingPayload, "正在读取内置提权文件")
+                val source = BundledPayloadCatalog.fileFor(appContext, bundledPayload)
+                    ?: throw IOException("内置提权文件校验失败")
                 payloadFile = copyBundledPayload(source)
                 payloadCommand = runtimeBundledCommand(bundledPayload)
                 suPath = LOCAL_PAYLOAD_SU_PATH
-                log("已选择内置 KSuRoot 载荷：${bundledPayload.library}")
+                log("已选择内置提权文件：${bundledPayload.library}")
             } else {
                 validateCommand(localRequest!!.command, local = true)
                 update(VivoWiredStage.DownloadingPayload, "正在读取本地提权文件")
@@ -396,7 +396,7 @@ internal class VivoWiredEscalator(
     }
 
 
-    private fun runtimeBundledCommand(payload: KsuRootPayload): String {
+    private fun runtimeBundledCommand(payload: BundledPayload): String {
         val command = payload.command
             .replace("<payload>", REMOTE_PAYLOAD)
             .replace("/data/local/tmp/preload.so", REMOTE_PAYLOAD)

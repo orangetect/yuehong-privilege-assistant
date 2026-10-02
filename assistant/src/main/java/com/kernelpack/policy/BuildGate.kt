@@ -21,7 +21,7 @@ import com.kernelpack.profile.BaselineScheme
  * 因此本闸门的原则与宿主侧 `gl5x/policy.py` + `build_payload.py` 的 G2/G3 一致：
  * **默认拒绝**；只有显式打开"忽略冲突"才放行，且放行必须留痕。
  *
- * [风险] 本类只做**判定**，不做任何 IO。留痕由调用方负责（见 PayloadBuilderViewModel）。
+ * [风险] 本类只做**判定**，不做任何 IO。留痕由调用方负责（见 构建调用方）。
  */
 enum class LayoutFamily(val label: String, val sizeBytes: Int, val words: Int) {
     FLAT_9W("flat-9w", 72, 9),

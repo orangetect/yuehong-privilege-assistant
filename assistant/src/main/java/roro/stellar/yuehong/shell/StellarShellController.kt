@@ -29,11 +29,6 @@ internal const val STELLAR_PAYLOAD_MODE = "0755"
 internal const val KERNEL_SU_ACTIVATION_SCRIPT_DESTINATION = "/data/local/tmp/yhroot_ksu_activate.sh"
 internal const val KERNEL_SU_ACTIVATION_SCRIPT_LOG = "/data/local/tmp/yhroot_ksu_activate.log"
 internal const val KERNEL_SU_ACTIVATION_SCRIPT_MODE = "0700"
-internal const val STELLAR_KSU_HELPER_DESTINATION = "/data/local/tmp/ksu-helper"
-internal const val STELLAR_KSU_PAYLOAD_DESTINATION = "/data/local/tmp/ksu-payload"
-internal const val KSU_ROOT_LOG_DESTINATION = "/data/local/tmp/ksu-exploit.log"
-internal const val STELLAR_KSU_HELPER_MODE = "0755"
-internal const val STELLAR_KSU_PAYLOAD_MODE = "0755"
 
 class StellarShellController : AutoCloseable {
     var status by mutableStateOf(StellarStatus.Checking)
@@ -281,7 +276,7 @@ class StellarShellController : AutoCloseable {
 
     @Suppress("DEPRECATION")
     fun installPayload(source: File): ShellFileInstallResult {
-        require(source.isFile) { "Downloaded resource file is missing" }
+        require(source.isFile) { "Bundled privilege file is missing" }
         val quotedDestination = "'$STELLAR_PAYLOAD_DESTINATION'"
         val remote = Stellar.newProcess(
             arrayOf(
@@ -297,99 +292,6 @@ class StellarShellController : AutoCloseable {
             source.inputStream().use { input ->
                 remote.outputStream.use { output -> input.copyTo(output) }
             }
-            val stdout = remote.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            val stderr = remote.errorStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            ShellFileInstallResult(
-                exitCode = remote.waitFor(),
-                output = listOf(stdout, stderr).filter(String::isNotBlank).joinToString("\n"),
-            )
-        } finally {
-            runCatching { remote.destroy() }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    fun installKsuRootHelper(source: File): ShellFileInstallResult =
-        installRemoteFile(source, STELLAR_KSU_HELPER_DESTINATION, STELLAR_KSU_HELPER_MODE)
-
-    @Suppress("DEPRECATION")
-    fun installKsuRootPayload(source: File): ShellFileInstallResult =
-        installRemoteFile(source, STELLAR_KSU_PAYLOAD_DESTINATION, STELLAR_KSU_PAYLOAD_MODE)
-
-    @Suppress("DEPRECATION")
-    private fun installRemoteFile(
-        source: File,
-        destination: String,
-        mode: String,
-    ): ShellFileInstallResult {
-        require(source.isFile) { "source file is missing: $source" }
-        val remote = Stellar.newProcess(
-            arrayOf(
-                "sh",
-                "-c",
-                "cat > '$destination' && chmod $mode '$destination' && " +
-                    "[ -f '$destination' ] && [ -x '$destination' ]",
-            ),
-            null,
-            "/",
-        )
-        return try {
-            source.inputStream().use { input ->
-                remote.outputStream.use { output -> input.copyTo(output) }
-            }
-            val stdout = remote.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            val stderr = remote.errorStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            ShellFileInstallResult(
-                exitCode = remote.waitFor(),
-                output = listOf(stdout, stderr).filter(String::isNotBlank).joinToString("\n"),
-            )
-        } finally {
-            runCatching { remote.destroy() }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    fun executeKsuRoot(command: String): ShellFileInstallResult {
-        val environment = arrayOf<String?>(
-            "EXPLOIT_ATTEMPTS=24",
-            "P0_ATTEMPT_TIMEOUT_SEC=45",
-            "EXPLOIT_ATTEMPT_TIMEOUT_SEC=120",
-            "CVE43499_ROOT_HELPER=$STELLAR_KSU_HELPER_DESTINATION",
-        )
-        val remote = Stellar.newProcess(
-            arrayOf("sh", "-c", "$command 2>&1"),
-            environment,
-            "/",
-        )
-        return try {
-            remote.outputStream.close()
-            val stdout = remote.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            val stderr = remote.errorStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            ShellFileInstallResult(
-                exitCode = remote.waitFor(),
-                output = listOf(stdout, stderr).filter(String::isNotBlank).joinToString("\n"),
-            )
-        } finally {
-            runCatching { remote.destroy() }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    fun removeKsuRootFiles(): ShellFileInstallResult {
-        val remote = Stellar.newProcess(
-            arrayOf(
-                "sh",
-                "-c",
-                "rm -f -- '$STELLAR_KSU_HELPER_DESTINATION' '$STELLAR_KSU_PAYLOAD_DESTINATION' " +
-                    "'$KSU_ROOT_LOG_DESTINATION' && " +
-                    "[ ! -e '$STELLAR_KSU_HELPER_DESTINATION' ] && " +
-                    "[ ! -e '$STELLAR_KSU_PAYLOAD_DESTINATION' ]",
-            ),
-            null,
-            "/",
-        )
-        return try {
-            remote.outputStream.close()
             val stdout = remote.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             val stderr = remote.errorStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             ShellFileInstallResult(

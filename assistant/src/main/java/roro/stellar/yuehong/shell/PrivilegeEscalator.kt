@@ -52,13 +52,10 @@ class PrivilegeEscalator(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val appContext = context.applicationContext
-    private var selectedBundledPayload: KsuRootPayload? = null
-
-    fun startWithBundledPayload(payload: KsuRootPayload) {
+    fun startWithBundledPayload(payload: BundledPayload) {
         if (stage != EscalationStage.Idle && stage != EscalationStage.Done) return
-        selectedBundledPayload = payload
         resetState()
-        log("starting local KSuRoot payload: " + payload.library)
+        log("starting bundled privilege payload: " + payload.library)
         updateStage(EscalationStage.CheckingPermission)
         shell.ensurePermission(
             onGranted = { executor.execute { runBundledFlow(payload) } },
@@ -67,7 +64,6 @@ class PrivilegeEscalator(
     }
 
     fun startWithLocalPayload(uri: Uri, command: String) {
-        selectedBundledPayload = null
         startInternal(LocalPayloadRequest(uri, command.trim()))
     }
 
@@ -93,11 +89,7 @@ class PrivilegeEscalator(
             if (stage != EscalationStage.Done) return@post
             stage = EscalationStage.ActivatingKernelSu
             result = EscalationResult.Idle
-            val bundled = selectedBundledPayload
-            executor.execute {
-                if (bundled == null) runKernelSuActivation(rootResult.suPath)
-                else runBundledKernelSuActivation(rootResult.suPath)
-            }
+            executor.execute { runKernelSuActivation(rootResult.suPath) }
         }
     }
 
@@ -114,39 +106,31 @@ class PrivilegeEscalator(
         resetState()
     }
 
-    private fun runBundledFlow(payload: KsuRootPayload) {
+    private fun runBundledFlow(payload: BundledPayload) {
         try {
             updateStage(EscalationStage.ValidatingCommand)
-            val payloadFile = KsuRootPayloadCatalog.fileFor(appContext, payload)
-                ?: throw IOException("内置载荷校验失败：" + payload.library)
-            val helperFile = File(appContext.applicationInfo.nativeLibraryDir, "libcve43499root.so")
-            if (!helperFile.isFile) throw IOException("缺少 KSuRoot helper")
+            val payloadFile = BundledPayloadCatalog.fileFor(appContext, payload)
+                ?: throw IOException("内置提权文件校验失败：" + payload.library)
             log("selected payload: " + payload.displayName + " (" + payload.library + ")")
             log("payload SHA-256: " + payload.sha256)
             log("payload command: " + payload.command)
             log("payload source: " + payload.source)
 
             updateStage(EscalationStage.InstallingResources)
-            val cleanup = shell.removeKsuRootFiles()
-            if (cleanup.exitCode != 0) throw IOException("清理旧 KSuRoot 文件失败")
-            if (shell.installKsuRootHelper(helperFile).exitCode != 0) {
-                throw IOException("写入 KSuRoot helper 失败")
-            }
-            if (shell.installKsuRootPayload(payloadFile).exitCode != 0) {
-                throw IOException("写入 KSuRoot 载荷失败")
+            val cleanup = shell.removeExistingPayload()
+            if (cleanup.exitCode != 0) throw IOException("清理旧提权文件失败")
+            if (shell.installPayload(payloadFile).exitCode != 0) {
+                throw IOException("写入内置提权文件失败")
             }
 
             updateStage(EscalationStage.ExecutingPayload)
-            val command = runtimeKsuRootCommand(payload)
-            log("executing KSuRoot command: " + command)
-            val execution = shell.executeKsuRoot(
-                command + "; rc=\$?; cat '" + KSU_ROOT_LOG_DESTINATION +
-                    "' 2>/dev/null; exit \$rc",
-            )
-            log("KSuRoot output: " + execution.output.trim().ifBlank { "<empty>" })
-            log("KSuRoot exit code=" + execution.exitCode)
+            val command = runtimeBundledCommand(payload)
+            log("executing bundled privilege command: " + command)
+            val execution = executeCommand(command)
+            log("bundled privilege output: " + execution.output.trim().ifBlank { "<empty>" })
+            log("bundled privilege exit code=" + execution.exitCode)
             if (execution.exitCode != 0) {
-                fail(EscalationStage.ExecutingPayload, "KSuRoot command exited with code " + execution.exitCode)
+                fail(EscalationStage.ExecutingPayload, "内置提权命令退出码为 " + execution.exitCode)
                 return
             }
 
@@ -178,63 +162,19 @@ class PrivilegeEscalator(
         }
     }
 
-    private fun runtimeKsuRootCommand(payload: KsuRootPayload): String {
+    private fun runtimeBundledCommand(payload: BundledPayload): String {
         var command = payload.command
-            .replace("<payload>", STELLAR_KSU_PAYLOAD_DESTINATION)
-            .replace("/data/local/tmp/preload.so", STELLAR_KSU_PAYLOAD_DESTINATION)
-            .replace("/data/local/tmp/mi_mt6895_43499", STELLAR_KSU_PAYLOAD_DESTINATION)
+            .replace("<payload>", STELLAR_PAYLOAD_DESTINATION)
+            .replace("/data/local/tmp/preload.so", STELLAR_PAYLOAD_DESTINATION)
+            .replace("/data/local/tmp/mi_mt6895_43499", STELLAR_PAYLOAD_DESTINATION)
             .replace("<su>", "/system/bin/id")
         payload.kernelVersion?.substringAfterLast('.')?.let {
             command = command.replace("<内核版本的后三位>", it)
         }
         return if (command.contains('<') || command.contains('>')) {
-            "LD_PRELOAD=" + STELLAR_KSU_PAYLOAD_DESTINATION + " /system/bin/id"
+            "LD_PRELOAD=" + STELLAR_PAYLOAD_DESTINATION + " /system/bin/id"
         } else {
             command
-        }
-    }
-
-    private fun runBundledKernelSuActivation(suPath: String) {
-        var failure: Throwable? = null
-        var cachedScript: File? = null
-        var output = ""
-        try {
-            cachedScript = prepareKernelSuActivationScript()
-            val installation = shell.installKernelSuActivationScript(cachedScript)
-            if (installation.exitCode != 0) {
-                throw IOException("KernelSU activation script installation failed")
-            }
-            val execution = executeSuCommand(
-                suPath,
-                "/system/bin/sh '" + KERNEL_SU_ACTIVATION_SCRIPT_DESTINATION + "'; " +
-                    "rc=\$?; cat '" + KERNEL_SU_ACTIVATION_SCRIPT_LOG +
-                    "' 2>/dev/null; exit \$rc",
-            )
-            output = execution.output.trim()
-            if (execution.exitCode != 0) {
-                throw IOException("KernelSU activation script exited with code " + execution.exitCode)
-            }
-        } catch (error: Throwable) {
-            failure = error
-        } finally {
-            runCatching { shell.removeKernelSuActivationScript() }
-            runCatching { shell.removeKsuRootFiles() }
-            cachedScript?.delete()
-        }
-        val activationFailure = failure
-        if (activationFailure != null) {
-            val reason = activationFailure.message?.takeIf(String::isNotBlank)
-                ?: activationFailure.javaClass.simpleName
-            shell.appendOutput("[KernelSU 激活失败] " + reason, isError = true)
-            mainHandler.post {
-                stage = EscalationStage.Done
-                result = EscalationResult.KernelSuActivationFailure(reason)
-            }
-        } else {
-            mainHandler.post {
-                stage = EscalationStage.Done
-                result = EscalationResult.KernelSuActivated(output)
-            }
         }
     }
 
@@ -378,7 +318,7 @@ class PrivilegeEscalator(
         var cachedScript: File? = null
         try {
             cachedScript = prepareKernelSuActivationScript()
-            log("installing GhostLock-style KernelSU activation script")
+            log("installing KernelSU activation script")
             val installation = shell.installKernelSuActivationScript(cachedScript)
             if (installation.output.isNotBlank()) outputs += installation.output.trim()
             if (installation.exitCode != 0) {

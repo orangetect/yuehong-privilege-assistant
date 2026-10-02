@@ -15,7 +15,7 @@
 3. 服务未启动时进入应用内无线调试自激活页；配对、连接和服务启动均由内置 Stellar 组件完成。
 4. 服务已启动但权限未确认时，使用 Stellar 自身授权页完成显式授权。
 5. 授权后进入命令工作台，终端和本地提权文件都通过 `Stellar.newProcess()` 执行。
-6. Stellar 提权使用 APK 内置的 KSuRoot 载荷手动选择，或导入本地载荷；提权执行不再请求设备匹配和载荷下载服务。
+6. Stellar 提权使用 APK 内置提权文件手动选择，或导入本地载荷；提权执行不再请求设备匹配和载荷下载服务。
 7. 提权成功后可按原流程检测并激活 KernelSU；KernelSU 接管后的 `su` 不可用时立即停止后续命令。
 
 应用保留正式版包名；使用相同证书签名时可覆盖安装现有正式版。公开源码不附带发行证书。整合工程未使用 Stellar 上游的 `sharedUserId`。
@@ -120,7 +120,7 @@ out/mapping/mapping-v1.5.5.txt
 启动验证与频道授权通过后，应用先进入提权模式选择页：
 
 - **内核 6.1 / 6.6 / 6.12 · GhostLock**：独立运行，按精确 `uname -r` 使用内置或导入 offsets；支持 `boot.img`、骁龙 `boot.img + xbl_config.img`、天玑 `boot.img` 与完整 OTA 链接。
-- **通用提权助手 · Stellar+KSuRoot**：使用 APK 内置 KSuRoot 载荷手动选择、本地文件导入、自激活和命令控制台。
+- **通用提权助手 · Stellar**：使用 APK 内置提权文件手动选择、本地文件导入、自激活和命令控制台。
 
 GhostLock 完整上游源码固定在 `third_party/ghostlock`。更新其原生组件后执行：
 

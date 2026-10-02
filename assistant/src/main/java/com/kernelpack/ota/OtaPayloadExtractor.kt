@@ -12,7 +12,7 @@
  *      `payload.bin`，而是直接放 `boot.img` / `init_boot.img`；
  *   ⑤ `xbl_config` 改为**可选**（默认不取）：本工程走 kallsyms 扫符号，
  *      不需要物理加载地址，取它只是白白多下几十 MiB；
- *   ⑥ 日志中文化，产物文件名前缀 `ghostlock_ota_` → `ksuroot_ota_`。
+ *   ⑥ 日志中文化，产物文件名前缀统一为 `yuehong_ota_`。
  *
  * 许可证见 app/src/main/assets/GL_LICENSE_Apache2.txt
  */
@@ -212,7 +212,7 @@ object OtaPayloadExtractor {
 
         try {
             for ((name, ops) in partitionOps) {
-                val outFile = File(workDir, "ksuroot_ota_${name}_$timestamp.img")
+                val outFile = File(workDir, "yuehong_ota_${name}_$timestamp.img")
                 if (name == "boot") bootFile = outFile else xblConfigFile = outFile
 
                 val totalSize = ops.flatMap { it.destExtents }
@@ -299,7 +299,7 @@ object OtaPayloadExtractor {
     ): File {
         val dataStart = locateEntryDataStart(reader, url, fileLength, entry, entry.fileName)
         val baseName = entry.fileName.substringAfterLast('/')
-        val outFile = File(workDir, "ksuroot_ota_${baseName}_${System.currentTimeMillis()}.img")
+        val outFile = File(workDir, "yuehong_ota_${baseName}_${System.currentTimeMillis()}.img")
 
         onLog("下载 ${entry.fileName}（${formatSize(entry.compressedSize)}）…")
         when (entry.method) {

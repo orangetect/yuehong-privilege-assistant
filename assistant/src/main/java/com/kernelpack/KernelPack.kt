@@ -188,7 +188,7 @@ object KernelPack {
         val offsets = resolver.resolve()
         for (f in resolver.failures()) log("[!] $f")
 
-        // [2026-09-25 修 · 与 PayloadBuilderViewModel 同一处错]
+        // [2026-09-25 修 · 与 构建调用方 同一处错]
         // 旧写法只查 [BaselineProfiles.detect]，而那张表只有 PD2520(6.6) / IONSTACK_P10(6.6)
         // 两条 —— 拿 6.1 或 6.12 的基线库进来，detect() 会**兜底返回 PD2520**，
         // 于是硬闸门报「基线 ABI 档位是 GKI 6.6 而 boot.img 是 6.1」把用户挡在门外。

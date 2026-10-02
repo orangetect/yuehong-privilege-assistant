@@ -1,6 +1,6 @@
 {
   "schema": "gl5x-integrity/1",
-  "name": "ksuroot-bundled-payloads",
+  "name": "bundled-privilege-payloads",
   "algo": "sha256",
   "created_at": 1789205371,
   "files": [
@@ -16,13 +16,6 @@
       "sha256": "67bedbd7709d40333392e1943cc9314eadf6322f651aa0c67ad6f95edaa2ae94",
       "size": 154528,
       "role": "payload-universal",
-      "required": true
-    },
-    {
-      "path": "libcve43499root.so",
-      "sha256": "c6b0612b6bdbd60ded964694284f7e8d81cfff2079abeaf3b8854952c2b49eec",
-      "size": 26024,
-      "role": "payload-helper",
       "required": true
     }
   ]

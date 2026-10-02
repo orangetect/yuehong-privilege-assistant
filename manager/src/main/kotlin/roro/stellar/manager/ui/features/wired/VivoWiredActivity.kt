@@ -82,9 +82,9 @@ import roro.stellar.manager.adb.PreferenceAdbKeyStore
 import roro.stellar.manager.adb.UsbAdbClient
 import roro.stellar.manager.ui.theme.StellarTheme
 import roro.stellar.yuehong.R
-import roro.stellar.yuehong.shell.KsuRootPayload
-import roro.stellar.yuehong.shell.KsuRootPayloadCatalog
-import roro.stellar.yuehong.ui.KsuRootPayloadDialog
+import roro.stellar.yuehong.shell.BundledPayload
+import roro.stellar.yuehong.shell.BundledPayloadCatalog
+import roro.stellar.yuehong.ui.BundledPayloadDialog
 import roro.stellar.yuehong.ui.LocalPayloadCommandDialog
 import java.io.File
 import java.io.IOException
@@ -251,7 +251,7 @@ internal class VivoWiredViewModel(application: Application) : AndroidViewModel(a
         refreshDeviceState()
     }
 
-    fun startWithBundledPayload(payload: KsuRootPayload) {
+    fun startWithBundledPayload(payload: BundledPayload) {
         startInternal(bundledPayload = payload)
     }
 
@@ -527,7 +527,7 @@ internal class VivoWiredViewModel(application: Application) : AndroidViewModel(a
 
     private fun startInternal(
         localRequest: VivoWiredLocalRequest? = null,
-        bundledPayload: KsuRootPayload? = null,
+        bundledPayload: BundledPayload? = null,
     ) {
         require((localRequest == null) != (bundledPayload == null))
         if (work?.isActive == true) return
@@ -773,7 +773,7 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
     val bundledPayloads = remember(context) {
-        runCatching { KsuRootPayloadCatalog.load(context) }.getOrDefault(emptyList())
+        runCatching { BundledPayloadCatalog.load(context) }.getOrDefault(emptyList())
     }
     var showPayloadPicker by remember { mutableStateOf(false) }
     var pendingLocalPayloadUri by remember { mutableStateOf<Uri?>(null) }
@@ -1114,7 +1114,7 @@ private fun VivoWiredScreen(viewModel: VivoWiredViewModel = viewModel()) {
     }
 
     if (showPayloadPicker) {
-        KsuRootPayloadDialog(
+        BundledPayloadDialog(
             payloads = bundledPayloads,
             onSelect = {
                 showPayloadPicker = false

@@ -381,5 +381,4 @@
     <string name="stellar_tab_activation">Activation</string>
     <string name="stellar_tab_apps">Authorized apps</string>
     <string name="stellar_tab_privilege">Privilege</string>
-    <string name="stellar_tab_builder">Build artifacts</string>
 </resources>

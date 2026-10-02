@@ -204,6 +204,6 @@ class HttpRangeReader(
     companion object {
         private const val MAX_REDIRECTS = 6
         private const val PROGRESS_STEP = 1L shl 20
-        const val DEFAULT_USER_AGENT = "KSuRoot/4.1 (Android; OTA offset extractor)"
+        const val DEFAULT_USER_AGENT = "YueHongPrivilegeAssistant/1.0 (Android; OTA offset extractor)"
     }
 }

@@ -7,12 +7,12 @@ import java.io.File
 import java.security.MessageDigest
 
 /**
- * 本地 KSuRoot 载荷目录。
+ * APK 内置提权文件目录。
  *
  * 载荷全部随 APK 打包，目录只负责展示和校验；不会根据设备信息自动替换
  * 用户的选择。这样每一份编译期常量载荷都必须由用户明确确认后才会执行。
  */
-data class KsuRootPayload(
+data class BundledPayload(
     val library: String,
     val vendor: String,
     val displayName: String,
@@ -35,23 +35,23 @@ data class KsuRootPayload(
         }
 }
 
-object KsuRootPayloadCatalog {
-    private const val ASSET_NAME = "ksuroot_payloads.json"
+object BundledPayloadCatalog {
+    private const val ASSET_NAME = "bundled_payloads.json"
 
-    fun load(context: Context): List<KsuRootPayload> {
+    fun load(context: Context): List<BundledPayload> {
         val root = JSONObject(
             context.applicationContext.assets.open(ASSET_NAME).bufferedReader(Charsets.UTF_8).use { it.readText() },
         )
-        require(root.optString("schema") == "yuehong-ksuroot-payloads/1") {
-            "unsupported KSuRoot payload catalog"
+        require(root.optString("schema") == "yuehong-bundled-payloads/1") {
+            "unsupported bundled privilege payload catalog"
         }
-        val array = root.optJSONArray("payloads") ?: error("KSuRoot payload catalog is empty")
+        val array = root.optJSONArray("payloads") ?: error("bundled privilege payload catalog is empty")
         return buildList(array.length()) {
             for (index in 0 until array.length()) add(parse(array.getJSONObject(index)))
         }
     }
 
-    fun fileFor(context: Context, payload: KsuRootPayload): File? {
+    fun fileFor(context: Context, payload: BundledPayload): File? {
         val file = File(context.applicationContext.applicationInfo.nativeLibraryDir, payload.library)
         if (!file.isFile || file.length() != payload.size) return null
         val digest = MessageDigest.getInstance("SHA-256")
@@ -69,7 +69,7 @@ object KsuRootPayloadCatalog {
         return file
     }
 
-    private fun parse(item: JSONObject): KsuRootPayload = KsuRootPayload(
+    private fun parse(item: JSONObject): BundledPayload = BundledPayload(
         library = item.getString("library"),
         vendor = item.optString("vendor"),
         displayName = item.optString("displayName"),
