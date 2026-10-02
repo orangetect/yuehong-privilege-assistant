@@ -13,7 +13,7 @@ case "$SCRIPT_PATH" in
     LOG="${SCRIPT_PATH%/*}/.ghostlock_ksu.log"
     ;;
   *)
-    LOG=/dev/null
+    LOG="$TMP_ROOT/yhroot_ksu_activate.log"
     ;;
 esac
 
@@ -47,13 +47,21 @@ discover_ksud() {
   return 1
 }
 
-cleanup_tmp() {
+cleanup_tmp_before_enforcing() {
+  CLEANUP_SCRIPT="$SCRIPT_PATH"
+  CLEANUP_LOG="$LOG"
   CLEANUP_TMP_ROOT="$TMP_ROOT"
-  if [ "$CLEANUP_TMP_ROOT" = "/data/local/tmp" ]; then
-    /system/bin/rm -rf /data/local/tmp/* /data/local/tmp/.[!.]* /data/local/tmp/..?* 2>/dev/null
-    return $?
-  fi
-  /system/bin/rm -rf "$CLEANUP_TMP_ROOT"/* "$CLEANUP_TMP_ROOT"/.[!.]* "$CLEANUP_TMP_ROOT"/..?* 2>/dev/null
+  (
+    trap '' HUP
+    rm -f "$CLEANUP_SCRIPT" "$CLEANUP_LOG"
+    rm -rf \
+      "$CLEANUP_TMP_ROOT"/* \
+      "$CLEANUP_TMP_ROOT"/.[!.]* \
+      "$CLEANUP_TMP_ROOT"/..?*
+    su -c 'load_policy /sys/fs/selinux/policy'
+  ) </dev/null >/dev/null 2>&1 &
+  CLEANUP_PID=$!
+  wait "$CLEANUP_PID"
 }
 
 echo "[*] KernelSU activation script start uid=$(id -u)" >"$LOG"
@@ -61,10 +69,6 @@ chmod 644 "$LOG" 2>/dev/null
 echo "[*] seccomp=$(grep Seccomp /proc/self/status 2>/dev/null | tr '\n' ' ')" >>"$LOG"
 
 discover_ksud
-
-if [ -z "$KSU_PACKAGE" ]; then
-  KSU_PACKAGE=me.weishu.kernelsu
-fi
 
 echo "[*] ksud=$KSUD" >>"$LOG"
 echo "[*] ksu_apk=$KSU_APK" >>"$LOG"
@@ -91,7 +95,7 @@ if ! grep -q kernelsu /proc/modules 2>/dev/null; then
   AVER=$(uname -r | grep -o 'android[0-9]*' | head -1)
   KMI="${AVER}-${KVER}"
   if [ -z "$AVER" ] || [ -z "$KVER" ]; then KMI=android15-6.6; fi
-  echo "[*] late-load kmi=$KMI package=$KSU_PACKAGE" >>"$LOG"
+  echo "[*] late-load kmi=$KMI" >>"$LOG"
   "$KSUD" late-load --kmi "$KMI" --allow-shell --package-name "$KSU_PACKAGE" >>"$LOG" 2>&1
   LATE_LOAD_RC=$?
   echo "[*] late-load exit=$LATE_LOAD_RC" >>"$LOG"
@@ -116,11 +120,6 @@ echo "[*] kernelsu.ko loaded; root pid=$$ uid=$(id -u)" >>"$LOG"
 echo 0 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
 echo "[*] setenforce 0 rc=$?" >>"$LOG"
 
-echo "[*] activation preparation complete; cleaning temporary files" >>"$LOG"
-cleanup_tmp
-CLEANUP_RC=$?
-echo "[*] temporary cleanup rc=$CLEANUP_RC" >>"$LOG"
-
 FIXUP_RC=1
 for i in $(seq 1 10); do
   echo "[*] fixup: attempt $i" >>"$LOG"
@@ -134,13 +133,16 @@ done
 
 echo "[*] policy fixup rc=$FIXUP_RC" >>"$LOG"
 if [ "$FIXUP_RC" -eq 0 ]; then
-  echo '[+] activation complete' | tee -a "$LOG"
-  echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
-  echo "[*] setenforce 1 rc=$?" >>"$LOG"
-  if [ "$CLEANUP_RC" -ne 0 ]; then
-    exit "$CLEANUP_RC"
+  echo "[*] activation complete; cleaning temporary files before restoring enforcing" >>"$LOG"
+  cleanup_tmp_before_enforcing
+  CLEANUP_RC=$?
+  if [ "$CLEANUP_RC" -eq 0 ]; then
+    echo '[+] /data/local/tmp cleaned; restoring SELinux enforcing'
+  else
+    echo "[!] temporary cleanup failed rc=$CLEANUP_RC; restoring SELinux enforcing"
   fi
-  exit 0
+  echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
+  exit "$CLEANUP_RC"
 fi
 
 echo '[!] fixup failed; SELinux left permissive' | tee -a "$LOG"
