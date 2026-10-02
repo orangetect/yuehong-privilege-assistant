@@ -61,6 +61,10 @@ echo "[*] seccomp=$(grep Seccomp /proc/self/status 2>/dev/null | tr '\n' ' ')" >
 
 discover_ksud
 
+if [ -z "$KSU_PACKAGE" ]; then
+  KSU_PACKAGE=me.weishu.kernelsu
+fi
+
 echo "[*] ksud=$KSUD" >>"$LOG"
 echo "[*] ksu_apk=$KSU_APK" >>"$LOG"
 echo "[*] ksu_package=$KSU_PACKAGE" >>"$LOG"
@@ -80,10 +84,6 @@ if ! grep -q kernelsu /proc/modules 2>/dev/null; then
   chmod 755 "$KSUD" 2>/dev/null
   if [ ! -x "$KSUD" ]; then
     echo '[!] ksud exists but is not executable' | tee -a "$LOG"
-    exit 1
-  fi
-  if [ -z "$KSU_PACKAGE" ]; then
-    echo '[!] KernelSU package name unavailable; cannot late-load' | tee -a "$LOG"
     exit 1
   fi
   KVER=$(uname -r | cut -d. -f1-2)
