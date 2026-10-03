@@ -37,7 +37,7 @@ LICENSES/   第三方许可证文本
 
 - [Stellar](https://github.com/roro2239/Stellar)：内置的 Manager、Server 与核心服务框架。
 - [GhostLock-App](https://github.com/YuKongA/ghostlock-app)：GhostLock 原生提权核心、OTA 解析器和内核偏移资源。
-- [KSuRoot](https://github.com/hmascs/KSuRoot/)：本地载荷目录、KernelPack 组件及 arm64-v8a 本地辅助组件。
+- [KSuRoot](https://github.com/hmascs/KSuRoot/)：APK 内置提权载荷来源。
 
 其他第三方代码的许可证和归属见 [NOTICE.md](NOTICE.md) 与 [LICENSES](LICENSES)。
 

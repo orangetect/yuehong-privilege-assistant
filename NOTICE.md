@@ -38,17 +38,17 @@ Stellar 保留的 Shizuku AIDL 与兼容层继续遵循 Apache-2.0。完整文�
 - Upstream snapshot: `ghostlock-app-main.zip`, SHA-256 `10898C812713F3AE239BB931EC6BA1CACFF60656D0FB49C87B58B09E335DD19E`
 - License: Apache License 2.0
 
-GhostLock C 核心、Rust 镜像/OTA 提取器、内核偏移表及许可证随源码交付；本次上游 native/profile 镜像位于 `third_party/ghostlock/upstream`，当前 App 仍使用父目录的兼容运行链路；Android 页面适配位于 `assistant/src/main/java/roro/stellar/yuehong/ghostlock`。Rust 提取器保留月虹的 `--require-xbl` 参数及其 HTTP 依赖配置，避免丢失骁龙 OTA 校验和在线提取能力。完整许可证文本位于 `LICENSES/GhostLock-Apache-2.0.txt`。
+GhostLock C 核心、Rust 镜像/OTA 提取器、内核偏移表及许可证随源码交付；本次上游 native/offset 源码位于 `third_party/ghostlock`；Android 页面适配位于 `assistant/src/main/java/roro/stellar/yuehong/ghostlock`。Rust 提取器保留月虹的 `--require-xbl` 参数及其 HTTP 依赖配置，避免丢失骁龙 OTA 校验和在线提取能力。完整许可证文本位于 `LICENSES/GhostLock-Apache-2.0.txt`。
 
 版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。
 
-## KSuRoot dynamic payload components
+## KSuRoot bundled payload components
 
 - Project: KSuRoot
 - Source: https://github.com/hmascs/KSuRoot/
 - Upstream snapshot: provided archive (2026-09-29) (`KSuRoot-main.zip`, SHA-256 `AE24388FEA5ED0E21EF4F344DB59CB05E7A6F60742C6BF052CE8F2B3413440FC`)
 - License: Apache License 2.0
 
-GhostLock+KSuRoot 的动态载荷方案仅移植 KSuRoot 的纯 Kotlin `kernelpack` 构建算法和 arm64-v8a 本地动态载荷/执行辅助程序；未移植其 Compose 页面、Provider 或在线下载逻辑。完整许可证文本位于 `LICENSES/Apache-2.0.txt`。
+本工程仅保留随 APK 发布的 arm64-v8a 内置提权载荷及其目录校验信息；不包含 KSuRoot 的动态构建算法、页面、Provider 或在线下载逻辑。完整许可证文本位于 `LICENSES/Apache-2.0.txt`。
 
 版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。

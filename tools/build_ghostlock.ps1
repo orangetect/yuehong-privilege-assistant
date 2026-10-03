@@ -25,15 +25,8 @@ if ($projectRoot -match '[^\x00-\x7F]') {
     $buildRoot = $junctionPath
 }
 
-function Invoke-Native([string]$program, [object[]]$arguments) {
-    & $program @arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Native command failed ($LASTEXITCODE): $program $($arguments -join ' ')"
-    }
-}
-
 try {
-    $upstreamRoot = Join-Path $buildRoot 'third_party\ghostlock\upstream'
+    $vendorRoot = Join-Path $buildRoot 'third_party\ghostlock'
     $jniRoot = Join-Path $buildRoot 'assistant\src\main\jniLibs\arm64-v8a'
     $sdkRoot = $env:ANDROID_HOME
     if (-not $sdkRoot) { $sdkRoot = $env:ANDROID_SDK_ROOT }
@@ -45,85 +38,47 @@ try {
 
     $prebuilt = if ($IsWindows -or $env:OS -eq 'Windows_NT') { 'windows-x86_64' } else { 'linux-x86_64' }
     $binRoot = Join-Path $ndkRoot "toolchains\llvm\prebuilt\$prebuilt\bin"
-    $clangName = if ($prebuilt -eq 'windows-x86_64') { "aarch64-linux-android$AndroidApi-clang++.cmd" } else { "aarch64-linux-android$AndroidApi-clang++" }
+    $clangName = if ($prebuilt -eq 'windows-x86_64') { "aarch64-linux-android$AndroidApi-clang.cmd" } else { "aarch64-linux-android$AndroidApi-clang" }
     $clang = Join-Path $binRoot $clangName
-    if (-not (Test-Path -LiteralPath $clang)) { throw "NDK C++ compiler not found: $clang" }
+    if (-not (Test-Path -LiteralPath $clang)) { throw "NDK clang not found: $clang" }
 
-    Push-Location -LiteralPath $buildRoot
-    try {
-        & python 'tools\generate_ghostlock_profiles.py'
-        if ($LASTEXITCODE -ne 0) { throw "GLK1 profile generation failed with exit code $LASTEXITCODE" }
-    } finally { Pop-Location }
-
-    $cxxSources = @(
-        'core\main.cpp',
-        'core\attack\ops.cpp',
-        'core\profile\entry.cpp',
-        'core\memory\address_space.cpp',
-        'core\memory\heap_context.cpp',
-        'core\race\pi_race.cpp',
-        'core\route\route_controller.cpp',
-        'core\route\route_middleware.cpp',
-        'core\race\threads.cpp',
-        'core\route\tcp_zerocopy_route.cpp',
-        'core\route\select_stack_route.cpp',
-        'core\route\multicast_waiter_route.cpp',
-        'core\memory\payload_builder.cpp',
-        'core\session\runtime_config.cpp',
-        'core\profile\binary.cpp',
-        'core\support\util.cpp',
-        'core\session\exploit_session.cpp',
-        'core\session\root_child_frontend.cpp',
-        'core\session\backend\cve_2026_43499_backend.cpp',
-        'core\session\handoff_probe.cpp',
-        'core\session\victim_process.cpp',
-        'core\session\victim_context.cpp',
-        'core\support\native_resource.cpp',
-        'core\support\run_state.cpp'
+    $responseFile = Join-Path $vendorRoot '.ghostlock-clang.rsp'
+    $clangArgs = @(
+        '-O2', '-flto', '-Wall', '-Wno-unused-parameter', '-Wno-sign-compare', '-Wno-unused-function',
+        '-Isrc/core', '-Isrc/kernels', '-DTARGET_CONFIG_H=\"target.h\"',
+        '-fPIE', '-pie', '-pthread', '-flto',
+        'src/core/main.c', 'src/core/offsets_json.c', 'src/core/util.c', 'src/core/fops.c',
+        '-o', 'ghostlock'
     )
-    $nativeBuildDir = Join-Path $buildRoot 'build\ghostlock-native'
-    if (Test-Path -LiteralPath $nativeBuildDir) { Remove-Item -LiteralPath $nativeBuildDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $nativeBuildDir -Force | Out-Null
-
-    $commonArgs = @(
-        '-O2', '-flto', '-Wall', '-Wextra', '-Wconversion', '-Wsign-conversion',
-        '-Wno-unused-parameter', '-Wno-sign-compare', '-Wno-unused-function',
-        '-std=c++23', '-fno-rtti', '-Isrc\core', '-DTARGET_CONFIG_H=\"kernel/target.h\"'
-    )
-    $objects = @()
-    Push-Location -LiteralPath $upstreamRoot
+    [IO.File]::WriteAllLines($responseFile, $clangArgs, (New-Object Text.UTF8Encoding($false)))
     try {
-        foreach ($relative in $cxxSources) {
-            $source = Join-Path 'src' $relative
-            $object = Join-Path $nativeBuildDir (($relative -replace '[\\/]', '_') + '.o')
-            $args = @($commonArgs + @('-c', $source, '-o', $object))
-            Invoke-Native $clang $args
-            $objects += $object
-        }
-        $ghostlock = Join-Path $nativeBuildDir 'libghostlock.so'
-        $linkArgs = @($objects + @('-fPIE', '-pie', '-pthread', '-flto', '-static-libstdc++', '-o', $ghostlock))
-        Invoke-Native $clang $linkArgs
-    } finally { Pop-Location }
+        Push-Location -LiteralPath $vendorRoot
+        try { & $clang '@.ghostlock-clang.rsp' } finally { Pop-Location }
+        if ($LASTEXITCODE -ne 0) { throw "GhostLock C build failed with exit code $LASTEXITCODE" }
+    } finally {
+        if (Test-Path -LiteralPath $responseFile) { Remove-Item -LiteralPath $responseFile -Force }
+    }
 
-    $extractRoot = Join-Path $upstreamRoot 'tools\extract_rs'
+    $extractRoot = Join-Path $vendorRoot 'tools\extract_rs'
     if ($junctionPath) {
         $env:CARGO_TARGET_DIR = [IO.Path]::GetFullPath(
             (Join-Path ([IO.Path]::GetTempPath()) 'yhroot-ghostlock-cargo-target')
         )
         New-Item -ItemType Directory -Path $env:CARGO_TARGET_DIR -Force | Out-Null
     }
-    $env:CC_aarch64_linux_android = $clang -replace '\+\+\.cmd$', '.cmd'
+    $env:CC_aarch64_linux_android = $clang
     $env:AR_aarch64_linux_android = Join-Path $binRoot ($(if ($prebuilt -eq 'windows-x86_64') { 'llvm-ar.exe' } else { 'llvm-ar' }))
-    $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = $env:CC_aarch64_linux_android
+    $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = $clang
     $cargoArgs = @()
     if ($prebuilt -eq 'windows-x86_64') { $cargoArgs += '+nightly-x86_64-pc-windows-gnu' }
-    $cargoArgs += @('build', '--release', '--target', 'aarch64-linux-android', '--locked', '--features', 'http')
+    $cargoArgs += @('build', '--release', '--target', 'aarch64-linux-android', '--locked')
     if ($Offline) { $cargoArgs += '--offline' }
     Push-Location -LiteralPath $extractRoot
-    try { Invoke-Native 'cargo' $cargoArgs } finally { Pop-Location }
+    try { & cargo @cargoArgs } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw "GhostLock extractor build failed with exit code $LASTEXITCODE" }
 
     New-Item -ItemType Directory -Path $jniRoot -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $nativeBuildDir 'libghostlock.so') -Destination (Join-Path $jniRoot 'libghostlock.so') -Force
+    Copy-Item -LiteralPath (Join-Path $vendorRoot 'ghostlock') -Destination (Join-Path $jniRoot 'libghostlock.so') -Force
     $cargoTargetRoot = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $extractRoot 'target' }
     Copy-Item -LiteralPath (Join-Path $cargoTargetRoot 'aarch64-linux-android\release\ghostlock-extract') -Destination (Join-Path $jniRoot 'libextract.so') -Force
 
