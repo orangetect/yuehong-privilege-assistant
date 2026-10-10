@@ -26,9 +26,7 @@ data class ShellFileInstallResult(val exitCode: Int, val output: String)
 
 internal const val STELLAR_PAYLOAD_DESTINATION = "/data/local/tmp/preload.so"
 internal const val STELLAR_PAYLOAD_MODE = "0755"
-internal const val KERNEL_SU_ACTIVATION_SCRIPT_DESTINATION = "/data/local/tmp/yhroot_ksu_activate.sh"
-internal const val KERNEL_SU_ACTIVATION_SCRIPT_LOG = "/data/local/tmp/yhroot_ksu_activate.log"
-internal const val KERNEL_SU_ACTIVATION_SCRIPT_MODE = "0700"
+private const val ACTIVATION_SCRIPT_MODE = "0700"
 
 class StellarShellController : AutoCloseable {
     var status by mutableStateOf(StellarStatus.Checking)
@@ -304,15 +302,15 @@ class StellarShellController : AutoCloseable {
     }
 
     @Suppress("DEPRECATION")
-    fun installKernelSuActivationScript(source: File): ShellFileInstallResult {
-        require(source.isFile) { "KernelSU activation script is missing" }
-        val quotedDestination = "'$KERNEL_SU_ACTIVATION_SCRIPT_DESTINATION'"
+    fun installActivationScript(source: File, destination: String): ShellFileInstallResult {
+        require(source.isFile) { "Activation script is missing" }
+        val quotedDestination = "'$destination'"
         val remote = Stellar.newProcess(
             arrayOf(
                 "sh",
                 "-c",
                 "cat > $quotedDestination && " +
-                    "chmod $KERNEL_SU_ACTIVATION_SCRIPT_MODE $quotedDestination && " +
+                    "chmod $ACTIVATION_SCRIPT_MODE $quotedDestination && " +
                     "[ -f $quotedDestination ] && [ -x $quotedDestination ]",
             ),
             null,
@@ -334,14 +332,14 @@ class StellarShellController : AutoCloseable {
     }
 
     @Suppress("DEPRECATION")
-    fun removeKernelSuActivationScript(): ShellFileInstallResult {
+    fun removeActivationScript(destination: String): ShellFileInstallResult {
         val remote = Stellar.newProcess(
             arrayOf(
                 "sh",
                 "-c",
-                "rm -f -- '$KERNEL_SU_ACTIVATION_SCRIPT_DESTINATION' && " +
-                    "[ ! -e '$KERNEL_SU_ACTIVATION_SCRIPT_DESTINATION' ] && " +
-                    "[ ! -L '$KERNEL_SU_ACTIVATION_SCRIPT_DESTINATION' ]",
+                "rm -f -- '$destination' && " +
+                    "[ ! -e '$destination' ] && " +
+                    "[ ! -L '$destination' ]",
             ),
             null,
             "/",

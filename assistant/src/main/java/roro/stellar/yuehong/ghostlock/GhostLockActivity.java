@@ -1,6 +1,7 @@
 package roro.stellar.yuehong.ghostlock;
 
 import roro.stellar.yuehong.R;
+import roro.stellar.yuehong.shell.JailbreakActivationMode;
 import roro.stellar.yuehong.shell.GhostLockOtaApi;
 
 import android.animation.Animator;
@@ -88,8 +89,7 @@ public class GhostLockActivity extends ComponentActivity {
     private static final String TAG = "GhostLockApp";
     private static final String BINARY_NAME = "libghostlock.so";
     private static final String EXTRACT_NAME = "libextract.so";
-    private static final String KSU_ACTIVATION_ASSET = "yhroot_ksu_activate.sh";
-    private static final String KSU_ACTIVATION_SCRIPT = ".ghostlock_root.sh";
+    private static final String ACTIVATION_SCRIPT = ".ghostlock_root.sh";
     private static final String OFFSETS_JSON = "offsets.json";
     private static final int REQ_IMPORT_OFFSETS = 1001;
     private static final int REQ_PICK_BOOT = 1002;
@@ -100,7 +100,7 @@ public class GhostLockActivity extends ComponentActivity {
     private static final String STATUS_FAILED_PREFIX = "failed:";
     private static final String STATUS_SUCCESS_PREFIX = "success:";
     private static final int MAX_NATIVE_ATTEMPTS = 2;
-    private static final int EXIT_KSU_ACTIVATION_FAILED = 2;
+    private static final int EXIT_ACTIVATION_FAILED = 2;
     private static final long NATIVE_RETRY_DELAY_MS = 1500L;
     private static final int COLOR_RED = 0xFFFF6B6B;
     private static final int COLOR_GREEN = 0xFF5FD68A;
@@ -125,6 +125,7 @@ public class GhostLockActivity extends ComponentActivity {
     private View rootView;
     private int cpuPairIndex;
     private boolean parseWantsXbl;
+    private JailbreakActivationMode activationMode;
 
     /**
      * Returns the value when it looks like a real device name, else null.
@@ -443,6 +444,7 @@ public class GhostLockActivity extends ComponentActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        activationMode = JailbreakActivationMode.read(this);
         setContentView(R.layout.activity_ghostlock);
         setupSystemBars();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1272,9 +1274,9 @@ public class GhostLockActivity extends ComponentActivity {
         throw new IOException("missing native binary: " + packaged.getAbsolutePath());
     }
 
-    private File prepareKsuActivationScript(File workDir) throws IOException {
-        File out = new File(workDir, KSU_ACTIVATION_SCRIPT);
-        try (InputStream in = getAssets().open(KSU_ACTIVATION_ASSET);
+    private File prepareActivationScript(File workDir) throws IOException {
+        File out = new File(workDir, ACTIVATION_SCRIPT);
+        try (InputStream in = getAssets().open(activationMode.getScriptAsset());
              OutputStream output = new FileOutputStream(out, false)) {
             copyStream(in, output);
         }
@@ -1312,10 +1314,11 @@ public class GhostLockActivity extends ComponentActivity {
         for (int attempt = 1; attempt <= MAX_NATIVE_ATTEMPTS; attempt++) {
             File activationLog = new File(workDir, ".ghostlock_ksu.log");
             if (activationLog.isFile() && !activationLog.delete()) {
-                appendLog("warning: stale KernelSU activation log could not be removed");
+                appendLog("warning: stale activation log could not be removed");
             }
-            File activationScript = prepareKsuActivationScript(workDir);
-            appendLog("shared KernelSU activation script ready: " + activationScript.getName());
+            File activationScript = prepareActivationScript(workDir);
+            appendLog("selected " + activationMode.getPreferenceValue()
+                    + " activation script ready: " + activationScript.getName());
             appendLog("native attempt " + attempt + "/" + MAX_NATIVE_ATTEMPTS);
             code = runBinary(binary, workDir);
             if (code == 0) {
@@ -1328,8 +1331,9 @@ public class GhostLockActivity extends ComponentActivity {
                     + "; retrying in a fresh process");
             Thread.sleep(NATIVE_RETRY_DELAY_MS);
         }
-        if (code == EXIT_KSU_ACTIVATION_FAILED) {
-            appendLog("KernelSU activation did not complete; result is not marked successful");
+        if (code == EXIT_ACTIVATION_FAILED) {
+            appendLog(activationMode.getPreferenceValue()
+                    + " activation did not complete; result is not marked successful");
         }
         return code;
     }

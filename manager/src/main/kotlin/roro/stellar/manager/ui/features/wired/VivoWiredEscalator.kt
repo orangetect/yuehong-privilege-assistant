@@ -8,6 +8,7 @@ import roro.stellar.manager.adb.UsbAdbClient
 import roro.stellar.yuehong.shell.DeviceProfile
 import roro.stellar.yuehong.shell.BundledPayload
 import roro.stellar.yuehong.shell.BundledPayloadCatalog
+import roro.stellar.yuehong.shell.JailbreakActivationMode
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -23,7 +24,7 @@ internal enum class VivoWiredStage {
     WaitingForBoot,
     ExecutingPayload,
     CheckingRoot,
-    ActivatingKernelSu,
+    ActivatingJailbreak,
     Done,
     Failed,
 }
@@ -47,9 +48,11 @@ internal data class VivoWiredLocalRequest(
 internal class VivoWiredEscalator(
     context: Context,
     private val connectTarget: suspend (waitingAfterReboot: Boolean) -> UsbAdbClient,
+    private val activationMode: JailbreakActivationMode,
     private val publish: (VivoWiredProgress) -> Unit,
 ) : AutoCloseable {
     private val appContext = context.applicationContext
+    private val activationLabel = appContext.getString(activationMode.labelResource)
     private var state = VivoWiredProgress()
 
     suspend fun run(
@@ -147,26 +150,27 @@ internal class VivoWiredEscalator(
             }
             log("目标设备临时 root 已确认")
 
-            update(VivoWiredStage.ActivatingKernelSu, "正在传输 KernelSU 激活脚本")
+            update(VivoWiredStage.ActivatingJailbreak, "正在传输 $activationLabel 激活脚本")
             val activationScript = copyActivationScript()
+            val activationScriptDestination = activationMode.scriptDestination
             try {
                 client = pushFileWithRetry(
                     initialClient = client,
                     source = activationScript,
-                    destination = REMOTE_ACTIVATION_SCRIPT,
+                    destination = activationScriptDestination,
                     mode = ACTIVATION_SCRIPT_MODE,
                 )
             } finally {
                 activationScript.delete()
             }
-            update(VivoWiredStage.ActivatingKernelSu, "正在激活 KernelSU")
+            update(VivoWiredStage.ActivatingJailbreak, "正在激活 $activationLabel")
             val activation = client.shell(
-                "chmod 0700 '$REMOTE_ACTIVATION_SCRIPT' && " +
-                    "$suPath -c 'sh $REMOTE_ACTIVATION_SCRIPT'",
+                "chmod 0700 '$activationScriptDestination' && " +
+                    "$suPath -c 'sh $activationScriptDestination'",
             )
             if (activation.output.isNotBlank()) log(activation.output)
             if (activation.exitCode != 0) {
-                throw IOException("KernelSU 激活脚本退出码=${activation.exitCode}")
+                throw IOException("激活脚本退出码=${activation.exitCode}")
             }
 
             client.shell("rm -f -- '$REMOTE_PAYLOAD'")
@@ -410,9 +414,9 @@ internal class VivoWiredEscalator(
     }
 
     private fun copyActivationScript(): File {
-        val target = File.createTempFile("yhroot-ksu-", ".sh", appContext.cacheDir)
+        val target = File.createTempFile("yhroot-${activationMode.preferenceValue}-", ".sh", appContext.cacheDir)
         return try {
-            appContext.assets.open(ACTIVATION_ASSET).use { input ->
+            appContext.assets.open(activationMode.scriptAsset).use { input ->
                 FileOutputStream(target).use { output ->
                     input.copyTo(output)
                     output.fd.sync()
@@ -491,7 +495,7 @@ internal class VivoWiredEscalator(
         state = state.copy(
             transferProgress = percent,
             status = when (state.stage) {
-                VivoWiredStage.ActivatingKernelSu -> "正在传输 KernelSU 激活脚本（$percent%）"
+                VivoWiredStage.ActivatingJailbreak -> "正在传输 $activationLabel 激活脚本（$percent%）"
                 else -> "正在传输提权文件（$percent%）"
             },
         )
@@ -529,8 +533,6 @@ internal class VivoWiredEscalator(
         const val POST_BOOT_COMMAND_DELAY_MS = 5_000L
         const val REMOTE_PAYLOAD = "/data/local/tmp/preload.so"
         const val LOCAL_PAYLOAD_SU_PATH = "/data/local/tmp/su"
-        const val REMOTE_ACTIVATION_SCRIPT = "/data/local/tmp/yhroot_ksu_activate.sh"
         const val ACTIVATION_SCRIPT_MODE = 0x81C0
-        const val ACTIVATION_ASSET = "yhroot_ksu_activate.sh"
     }
 }

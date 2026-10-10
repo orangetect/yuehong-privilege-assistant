@@ -134,6 +134,16 @@
     <string name="channel_link_not_configured">The QQ channel link is not configured.</string>
     <string name="channel_open_failed">Unable to open the QQ channel.</string>
     <string name="mode_selection_title">Choose a privilege mode</string>
+    <string name="jailbreak_mode_selection_label">Jailbreak activation method</string>
+    <string name="jailbreak_mode_kernelsu">KernelSU</string>
+    <string name="jailbreak_mode_apatch">APatch</string>
+    <string name="escalation_activating_jailbreak">Activating %1$s jailbreak mode…</string>
+    <string name="jailbreak_activation_prompt">Root has been confirmed. Activate %1$s jailbreak mode now?</string>
+    <string name="activate_selected_jailbreak">Activate</string>
+    <string name="jailbreak_activation_success_title">%1$s jailbreak mode activated</string>
+    <string name="jailbreak_activation_success_message">The %1$s activation script completed successfully.</string>
+    <string name="jailbreak_activation_failure_title">%1$s activation failed</string>
+    <string name="jailbreak_activation_failure_message">Root escalation succeeded, but %1$s activation did not complete.</string>
     <string name="mode_ghostlock_title">6.x kernel · GhostLock</string>
     <string name="mode_ghostlock_body">Runs GhostLock independently. Cached offsets for the current kernel run first, followed by APK built-in offsets; a built-in failure automatically parses the full OTA and runs again.</string>
     <string name="mode_ghostlock_android_required">Android 15+ required</string>

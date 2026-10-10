@@ -28,6 +28,7 @@ import roro.stellar.yuehong.ghostlock.GhostLockActivity
 import roro.stellar.yuehong.shell.HttpStartupVerificationApi
 import roro.stellar.yuehong.shell.StartupVerification
 import roro.stellar.yuehong.shell.StartupVerificationResult
+import roro.stellar.yuehong.shell.JailbreakActivationMode
 
 private enum class AppPage {
     Announcement,
@@ -45,6 +46,9 @@ fun StellarAssistantApp() {
         }
         var page by rememberSaveable { mutableStateOf(AppPage.Announcement) }
         var startupRefreshGeneration by rememberSaveable { mutableIntStateOf(0) }
+        var activationMode by rememberSaveable {
+            mutableStateOf(JailbreakActivationMode.read(context))
+        }
         val kernelRelease = remember {
             runCatching { Os.uname().release }.getOrNull().orEmpty().ifBlank {
                 System.getProperty("os.version", "unknown")
@@ -123,6 +127,11 @@ fun StellarAssistantApp() {
 
                 AppPage.ModeSelection -> ModeSelectionScreen(
                     ghostLockKernelAvailable = ghostLockKernelAvailable,
+                    activationMode = activationMode,
+                    onActivationModeChange = { mode ->
+                        activationMode = mode
+                        JailbreakActivationMode.write(context, mode)
+                    },
                     onOpenGhostLock = ::openGhostLockMode,
                     onOpenStellar = ::openStellarMode,
                     onOpenVivoWired = ::openVivoWiredMode,
