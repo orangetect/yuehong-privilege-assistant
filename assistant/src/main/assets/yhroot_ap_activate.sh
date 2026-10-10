@@ -5,6 +5,7 @@ DATA_APP_ROOT=/data/app
 TMP_ROOT=/data/local/tmp
 SELINUX_ENFORCE_PATH=/sys/fs/selinux/enforce
 APD=
+APK=
 AP_PACKAGE=
 AP_MODULE="$TMP_ROOT/yhroot_ap_kernelpatch.ko"
 
@@ -23,6 +24,7 @@ discover_apatch() {
 
   APP_DIR=${APD%/lib/*/libapd.so}
   APK_PATH="$APP_DIR/base.apk"
+  APK="$APK_PATH"
   if [ -f "$APK_PATH" ]; then
     AP_PACKAGE=$(package_for_apk "$APK_PATH")
   fi
