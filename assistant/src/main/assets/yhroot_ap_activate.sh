@@ -119,7 +119,11 @@ fi
 
 echo "[*] Kernel KMI: $KMI"
 echo "[*] Loading matching KernelPatch asset"
-"$APD" late-load --module "$AP_MODULE"
+if command -v service >/dev/null 2>&1 && service check activity >/dev/null 2>&1 && [ -n "$AP_PACKAGE" ]; then
+  "$APD" late-load --module "$AP_MODULE" --package-name "$AP_PACKAGE"
+else
+  "$APD" late-load --module "$AP_MODULE"
+fi
 APD_RC=$?
 if [ "$APD_RC" -ne 0 ]; then
   fail "APD late-load failed with exit code $APD_RC" "$APD_RC"
