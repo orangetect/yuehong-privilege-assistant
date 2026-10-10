@@ -445,7 +445,11 @@ public class GhostLockActivity extends ComponentActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        activationMode = JailbreakActivationMode.read(this);
+        String requestedMode = getIntent().getStringExtra(JailbreakActivationMode.INTENT_EXTRA);
+        activationMode = JailbreakActivationMode.fromPreferenceValue(requestedMode);
+        if (activationMode == null) {
+            activationMode = JailbreakActivationMode.read(this);
+        }
         setContentView(R.layout.activity_ghostlock);
         setupSystemBars();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1296,6 +1300,8 @@ public class GhostLockActivity extends ComponentActivity {
         pb.directory(workDir);
         pb.redirectErrorStream(true);
         pb.environment().put("GHOSTLOCK_HOME", workDir.getAbsolutePath());
+        pb.environment().put("GHOSTLOCK_ACTIVATION_SCRIPT",
+                new File(workDir, ACTIVATION_SCRIPT).getAbsolutePath());
         pb.environment().put("TMPDIR", workDir.getAbsolutePath());
         pb.environment().put("HOME", workDir.getAbsolutePath());
         pb.environment().put("YHROOT_CLEANUP_DELAY", "5");

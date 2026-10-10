@@ -29,13 +29,18 @@ enum class JailbreakActivationMode(
     companion object {
         private const val PREFERENCES = "yuehong_privilege_assistant"
         private const val PREFERENCE_KEY = "jailbreak_activation_mode"
+        const val INTENT_EXTRA = "jailbreak_activation_mode"
+
+        @JvmStatic
+        fun fromPreferenceValue(value: String?): JailbreakActivationMode? =
+            entries.firstOrNull { it.preferenceValue == value }
 
         @JvmStatic
         fun read(context: Context): JailbreakActivationMode {
             val value = context.applicationContext
                 .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
                 .getString(PREFERENCE_KEY, null)
-            return entries.firstOrNull { it.preferenceValue == value } ?: KERNELSU
+            return fromPreferenceValue(value) ?: KERNELSU
         }
 
         @JvmStatic
@@ -44,7 +49,7 @@ enum class JailbreakActivationMode(
                 .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
                 .edit()
                 .putString(PREFERENCE_KEY, mode.preferenceValue)
-                .apply()
+                .commit()
         }
     }
 }

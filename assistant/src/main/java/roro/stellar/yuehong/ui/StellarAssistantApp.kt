@@ -60,7 +60,9 @@ fun StellarAssistantApp() {
 
         fun openGhostLockMode() {
             val activity = context as? Activity ?: return
-            activity.startActivity(Intent(context, GhostLockActivity::class.java))
+            activity.startActivity(Intent(context, GhostLockActivity::class.java).apply {
+                putExtra(JailbreakActivationMode.INTENT_EXTRA, activationMode.preferenceValue)
+            })
         }
 
         fun openStellarMode() {

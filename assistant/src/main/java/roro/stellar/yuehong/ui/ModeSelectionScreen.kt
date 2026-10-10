@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -28,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -66,20 +64,6 @@ internal fun ModeSelectionScreen(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .selectableGroup(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                JailbreakActivationMode.entries.forEach { mode ->
-                    JailbreakModeOption(
-                        mode = mode,
-                        selected = activationMode == mode,
-                        onClick = { onActivationModeChange(mode) },
-                    )
-                }
-            }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onOpenStellar,
@@ -117,26 +101,40 @@ internal fun ModeSelectionScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                JailbreakActivationMode.entries.forEach { mode ->
+                    JailbreakModeOption(
+                        modifier = Modifier.weight(1f),
+                        mode = mode,
+                        selected = activationMode == mode,
+                        onClick = { onActivationModeChange(mode) },
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun JailbreakModeOption(
+    modifier: Modifier = Modifier,
     mode: JailbreakActivationMode,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(12.dp)
     val colors = MaterialTheme.colorScheme
     val containerColor = if (selected) colors.primaryContainer else colors.surfaceContainerLow
     val contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface
-    val indicatorColor = if (selected) colors.primary else colors.outline
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(56.dp)
+        modifier = modifier
+            .height(42.dp)
             .clip(shape)
             .background(containerColor)
             .border(1.dp, if (selected) colors.primary else colors.outlineVariant, shape)
@@ -147,29 +145,21 @@ private fun JailbreakModeOption(
             )
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.Center,
     ) {
+        if (selected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                tint = colors.primary,
+                modifier = Modifier.size(14.dp),
+            )
+        }
         Text(
             text = stringResource(mode.labelResource),
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             color = contentColor,
         )
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .background(if (selected) colors.primary else Color.Transparent, CircleShape)
-                .border(1.5.dp, indicatorColor, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (selected) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = colors.onPrimary,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-        }
     }
 }
