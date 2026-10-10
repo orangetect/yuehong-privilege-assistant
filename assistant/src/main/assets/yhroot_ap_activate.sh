@@ -5,11 +5,44 @@ DATA_APP_ROOT=/data/app
 TMP_ROOT=/data/local/tmp
 SELINUX_ENFORCE_PATH=/sys/fs/selinux/enforce
 APD=
+AP_PACKAGE=
 AP_MODULE="$TMP_ROOT/yhroot_ap_kernelpatch.ko"
+
+package_for_apk() {
+  APK_PATH="$1"
+  PACKAGE_LINE=$(cmd package list packages -f 2>/dev/null | grep -F "package:$APK_PATH=" | head -n 1)
+  if [ -z "$PACKAGE_LINE" ]; then
+    PACKAGE_LINE=$(pm list packages -f 2>/dev/null | grep -F "package:$APK_PATH=" | head -n 1)
+  fi
+  [ -n "$PACKAGE_LINE" ] && printf '%s\n' "${PACKAGE_LINE##*=}"
+}
 
 discover_apatch() {
   APD=$(find "$DATA_APP_ROOT" -name libapd.so 2>/dev/null | head -n 1)
-  [ -n "$APD" ]
+  [ -n "$APD" ] || return 1
+
+  APP_DIR=${APD%/lib/*/libapd.so}
+  APK_PATH="$APP_DIR/base.apk"
+  if [ -f "$APK_PATH" ]; then
+    AP_PACKAGE=$(package_for_apk "$APK_PATH")
+  fi
+  if [ -z "$AP_PACKAGE" ]; then
+    INSTALL_DIR=${APP_DIR##*/}
+    AP_PACKAGE=${INSTALL_DIR%%-*}
+  fi
+}
+
+force_stop_manager_if_activity_unavailable() {
+  [ -n "$AP_PACKAGE" ] || return 0
+  if command -v service >/dev/null 2>&1 && service check activity >/dev/null 2>&1; then
+    return 0
+  fi
+  for PID in $(pidof "$AP_PACKAGE" 2>/dev/null); do
+    case "$PID" in
+      ''|1|$$) continue ;;
+    esac
+    kill -9 "$PID" 2>/dev/null
+  done
 }
 
 cleanup_tmp() {
@@ -96,5 +129,6 @@ if [ ! -e /sys/module/kernelpatch ]; then
   fail 'APD returned success but KernelPatch is not loaded'
 fi
 
+force_stop_manager_if_activity_unavailable
 cleanup_tmp
 echo '[+] APatch jailbreak activation complete; /data/local/tmp cleared'
