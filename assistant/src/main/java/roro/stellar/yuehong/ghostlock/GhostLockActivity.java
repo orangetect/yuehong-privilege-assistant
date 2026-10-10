@@ -89,7 +89,8 @@ public class GhostLockActivity extends ComponentActivity {
     private static final String TAG = "GhostLockApp";
     private static final String BINARY_NAME = "libghostlock.so";
     private static final String EXTRACT_NAME = "libextract.so";
-    private static final String ACTIVATION_SCRIPT = ".ghostlock_root.sh";
+    private static final String ACTIVATION_SCRIPT = ".ghostlock_activation.sh";
+    private static final String ACTIVATION_STATUS = ".ghostlock_activation.status";
     private static final String OFFSETS_JSON = "offsets.json";
     private static final int REQ_IMPORT_OFFSETS = 1001;
     private static final int REQ_PICK_BOOT = 1002;
@@ -1171,6 +1172,8 @@ public class GhostLockActivity extends ComponentActivity {
         pb.directory(workDir);
         pb.redirectErrorStream(true);
         pb.environment().put("GHOSTLOCK_HOME", workDir.getAbsolutePath());
+        pb.environment().put("GHOSTLOCK_ACTIVATION_SCRIPT",
+                new File(workDir, ACTIVATION_SCRIPT).getAbsolutePath());
         pb.environment().put("TMPDIR", workDir.getAbsolutePath());
         pb.environment().put("HOME", workDir.getAbsolutePath());
         // Payload downloads and on-device analysis can take a while.
@@ -1315,6 +1318,10 @@ public class GhostLockActivity extends ComponentActivity {
             File activationLog = new File(workDir, ".ghostlock_ksu.log");
             if (activationLog.isFile() && !activationLog.delete()) {
                 appendLog("warning: stale activation log could not be removed");
+            }
+            File activationStatus = new File(workDir, ACTIVATION_STATUS);
+            if (activationStatus.isFile() && !activationStatus.delete()) {
+                appendLog("warning: stale activation status could not be removed");
             }
             File activationScript = prepareActivationScript(workDir);
             appendLog("selected " + activationMode.getPreferenceValue()

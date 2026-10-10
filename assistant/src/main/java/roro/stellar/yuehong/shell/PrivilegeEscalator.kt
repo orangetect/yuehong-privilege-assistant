@@ -136,7 +136,7 @@ class PrivilegeEscalator(
 
             updateStage(EscalationStage.CheckingRoot)
             val payloadOutput = execution.output.trim()
-            val rootCheck = findRootSu()
+            val rootCheck = waitForRootSu()
             if (rootCheck == null) {
                 log("root detected=false")
                 updateStage(EscalationStage.Done)
@@ -231,11 +231,11 @@ class PrivilegeEscalator(
 
             updateStage(EscalationStage.CheckingRoot)
             log("checking root with su path: $LOCAL_PAYLOAD_SU_PATH -c 'id'")
-            val rootCheck = executeSuCommand(LOCAL_PAYLOAD_SU_PATH, ROOT_CHECK_INNER_COMMAND)
-            val rootOutput = rootCheck.output.trim()
-            val isRoot = ROOT_UID_PATTERN.containsMatchIn(rootOutput)
+            val rootCheck = waitForRootSu(LOCAL_PAYLOAD_SU_PATH)
+            val rootOutput = rootCheck?.output.orEmpty().trim()
+            val isRoot = rootCheck != null
             log("root check output: $rootOutput")
-            log("root check exit code=${rootCheck.exitCode} (not used for success decision)")
+            log("root check exit code=${rootCheck?.exitCode ?: 1}")
             log("root detected=$isRoot (based on uid=0 output)")
 
             updateStage(EscalationStage.Done)
@@ -433,18 +433,37 @@ class PrivilegeEscalator(
         return executeProcess(arrayOf(suPath, "-c", innerCommand))
     }
 
+    private fun waitForRootSu(path: String = ""): RootCheck? {
+        repeat(ROOT_CHECK_ATTEMPTS) { attempt ->
+            val root = if (path.isEmpty()) findRootSu() else checkRootSu(path)
+            if (root != null) {
+                if (attempt > 0) log("root check succeeded after ${attempt + 1} attempts")
+                return root
+            }
+            if (attempt + 1 < ROOT_CHECK_ATTEMPTS) Thread.sleep(ROOT_CHECK_INTERVAL_MS)
+        }
+        return null
+    }
+
+    private fun checkRootSu(path: String): RootCheck? {
+        return try {
+            val check = executeSuCommand(path, ROOT_CHECK_INNER_COMMAND)
+            val output = check.output.trim()
+            log("root check $path exit=${check.exitCode}: ${output.ifBlank { "<empty>" }}")
+            if (check.exitCode == 0 && ROOT_UID_PATTERN.containsMatchIn(output)) {
+                RootCheck(path, output, check.exitCode)
+            } else {
+                null
+            }
+        } catch (error: Throwable) {
+            log("root check $path unavailable")
+            null
+        }
+    }
+
     private fun findRootSu(): RootCheck? {
         for (path in ROOT_SU_CANDIDATES) {
-            try {
-                val check = executeSuCommand(path, ROOT_CHECK_INNER_COMMAND)
-                val output = check.output.trim()
-                log("root check " + path + " exit=" + check.exitCode + ": " + output.ifBlank { "<empty>" })
-                if (ROOT_UID_PATTERN.containsMatchIn(output)) {
-                    return RootCheck(path, output)
-                }
-            } catch (error: Throwable) {
-                log("root check " + path + " unavailable")
-            }
+            checkRootSu(path)?.let { return it }
         }
         return null
     }
@@ -511,6 +530,8 @@ class PrivilegeEscalator(
         const val LOCAL_PAYLOAD_CACHE_DIRECTORY = "local-payloads"
         const val LOCAL_PAYLOAD_PREFIX = "payload-"
         const val ROOT_CHECK_INNER_COMMAND = "id"
+        const val ROOT_CHECK_ATTEMPTS = 50
+        const val ROOT_CHECK_INTERVAL_MS = 100L
         val ROOT_SU_CANDIDATES = listOf(
             LOCAL_PAYLOAD_SU_PATH,
             "/apex/com.android.virt/bin/su",
@@ -527,5 +548,6 @@ class PrivilegeEscalator(
     private data class RootCheck(
         val path: String,
         val output: String,
+        val exitCode: Int,
     )
 }
