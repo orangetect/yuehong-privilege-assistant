@@ -9,6 +9,17 @@ APK=
 AP_PACKAGE=
 AP_MODULE="$TMP_ROOT/yhroot_ap_kernelpatch.ko"
 
+package_for_apk() {
+  APK_PATH="$1"
+  PACKAGE_LINE=$(cmd package list packages -f 2>/dev/null | grep -F "package:$APK_PATH=" | head -n 1)
+  if [ -z "$PACKAGE_LINE" ]; then
+    PACKAGE_LINE=$(pm list packages -f 2>/dev/null | grep -F "package:$APK_PATH=" | head -n 1)
+  fi
+  if [ -n "$PACKAGE_LINE" ]; then
+    printf '%s\n' "${PACKAGE_LINE##*=}"
+  fi
+}
+
 discover_apatch() {
   APD=$(find "$DATA_APP_ROOT" -name libapd.so 2>/dev/null | head -n 1)
   [ -n "$APD" ] || return 1
@@ -17,12 +28,12 @@ discover_apatch() {
   APK="$APP_DIR/base.apk"
   [ -f "$APK" ] || return 1
 
-  INSTALL_DIR=${APP_DIR##*/}
-  AP_PACKAGE=${INSTALL_DIR%%-*}
-  case "$AP_PACKAGE" in
-    me.bmax.apatch|me.yuki.folk) return 0 ;;
-  esac
-  return 1
+  AP_PACKAGE=$(package_for_apk "$APK")
+  if [ -z "$AP_PACKAGE" ]; then
+    INSTALL_DIR=${APP_DIR##*/}
+    AP_PACKAGE=${INSTALL_DIR%%-*}
+  fi
+  [ -n "$AP_PACKAGE" ]
 }
 
 cleanup_tmp() {
@@ -100,7 +111,11 @@ fi
 echo "[*] APatch package: $AP_PACKAGE"
 echo "[*] Kernel KMI: $KMI"
 echo "[*] Loading matching KernelPatch asset"
-"$APD" late-load --module "$AP_MODULE" --package-name "$AP_PACKAGE"
+if [ -n "$AP_PACKAGE" ]; then
+  "$APD" late-load --module "$AP_MODULE" --package-name "$AP_PACKAGE"
+else
+  "$APD" late-load --module "$AP_MODULE"
+fi
 APD_RC=$?
 if [ "$APD_RC" -ne 0 ]; then
   fail "APD late-load failed with exit code $APD_RC" "$APD_RC"
