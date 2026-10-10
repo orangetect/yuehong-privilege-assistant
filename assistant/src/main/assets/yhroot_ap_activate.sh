@@ -17,8 +17,12 @@ discover_apatch() {
   APK="$APP_DIR/base.apk"
   [ -f "$APK" ] || return 1
 
-  AP_PACKAGE=me.bmax.apatch
-  return 0
+  INSTALL_DIR=${APP_DIR##*/}
+  AP_PACKAGE=${INSTALL_DIR%%-*}
+  case "$AP_PACKAGE" in
+    me.bmax.apatch|me.yuki.folk) return 0 ;;
+  esac
+  return 1
 }
 
 cleanup_tmp() {
@@ -47,7 +51,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 if ! discover_apatch; then
-  fail 'APatch package APK or libapd.so was not found'
+  fail 'APatch/FolkPatch APK or libapd.so was not found'
 fi
 
 chmod 755 "$APD" 2>/dev/null
