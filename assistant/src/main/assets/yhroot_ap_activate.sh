@@ -1,7 +1,6 @@
 #!/system/bin/sh
 
 SCRIPT_PATH="$0"
-DATA_APP_ROOT=/data/app
 TMP_ROOT=/data/local/tmp
 SELINUX_ENFORCE_PATH=/sys/fs/selinux/enforce
 APD=
@@ -11,13 +10,12 @@ AP_MODULE="$TMP_ROOT/yhroot_ap_kernelpatch.ko"
 
 discover_apatch() {
   AP_PACKAGE=me.bmax.apatch
-  APD=$(find "$DATA_APP_ROOT" -name libapd.so 2>/dev/null | grep -F "$AP_PACKAGE" | head -n 1)
-  [ -n "$APD" ] || return 1
+  APK=$(/system/bin/pm path "$AP_PACKAGE" 2>/dev/null | sed -n 's/^package://p' | grep '/base.apk$' | head -n 1)
+  [ -f "$APK" ] || return 1
 
-  APP_LIB_DIR=${APD%/*}
-  APP_DIR=${APP_LIB_DIR%/lib/*}
-  APK="$APP_DIR/base.apk"
-  [ -f "$APK" ]
+  APP_DIR=${APK%/base.apk}
+  APD=$(find "$APP_DIR" -name libapd.so 2>/dev/null | head -n 1)
+  [ -n "$APD" ] && [ -f "$APD" ]
 }
 
 cleanup_tmp() {
@@ -46,7 +44,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 if ! discover_apatch; then
-  fail 'APatch libapd.so was not found in /data/app'
+  fail 'APatch package APK or libapd.so was not found'
 fi
 
 chmod 755 "$APD" 2>/dev/null
