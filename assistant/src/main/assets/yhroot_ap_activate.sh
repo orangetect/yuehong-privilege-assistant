@@ -9,41 +9,16 @@ APK=
 AP_PACKAGE=
 AP_MODULE="$TMP_ROOT/yhroot_ap_kernelpatch.ko"
 
-package_for_apk() {
-  APK_PATH="$1"
-  PACKAGE_LINE=$(cmd package list packages -f 2>/dev/null | grep -F "package:$APK_PATH=" | head -1)
-  if [ -z "$PACKAGE_LINE" ]; then
-    PACKAGE_LINE=$(pm list packages -f 2>/dev/null | grep -F "package:$APK_PATH=" | head -1)
-  fi
-  if [ -n "$PACKAGE_LINE" ]; then
-    printf '%s\n' "${PACKAGE_LINE##*=}"
-  fi
-}
-
 discover_apatch() {
-  for CANDIDATE in \
-    "$DATA_APP_ROOT"/*/*/lib/*/libapd.so \
-    "$DATA_APP_ROOT"/*/lib/*/libapd.so; do
-    [ -f "$CANDIDATE" ] || continue
-    APP_DIR=${CANDIDATE%/lib/*/libapd.so}
-    APK_PATH="$APP_DIR/base.apk"
-    [ -f "$APK_PATH" ] || continue
+  APD=$(find "$DATA_APP_ROOT" -name libapd.so 2>/dev/null | head -n 1)
+  [ -n "$APD" ] || return 1
 
-    PACKAGE=$(package_for_apk "$APK_PATH")
-    if [ -z "$PACKAGE" ]; then
-      INSTALL_DIR=${APP_DIR##*/}
-      case "$INSTALL_DIR" in
-        me.bmax.apatch-*) PACKAGE=me.bmax.apatch ;;
-      esac
-    fi
-    [ "$PACKAGE" = me.bmax.apatch ] || continue
+  APP_DIR=${APD%/lib/*/libapd.so}
+  APK="$APP_DIR/base.apk"
+  [ -f "$APK" ] || return 1
 
-    APD="$CANDIDATE"
-    APK="$APK_PATH"
-    AP_PACKAGE="$PACKAGE"
-    return 0
-  done
-  return 1
+  AP_PACKAGE=me.bmax.apatch
+  return 0
 }
 
 cleanup_tmp() {
