@@ -132,9 +132,8 @@
     <string name="channel_link_not_configured">QQ 频道链接尚未配置。</string>
     <string name="channel_open_failed">无法打开 QQ 频道。</string>
     <string name="mode_selection_title">选择提权模式</string>
-    <string name="jailbreak_mode_selection_label">越狱激活方式</string>
-    <string name="jailbreak_mode_kernelsu">KernelSU</string>
-    <string name="jailbreak_mode_apatch">APatch</string>
+    <string name="jailbreak_mode_kernelsu">KernelSU及分支</string>
+    <string name="jailbreak_mode_apatch">APatch及分支</string>
     <string name="escalation_activating_jailbreak">正在激活 %1$s 越狱模式…</string>
     <string name="jailbreak_activation_prompt">已确认 Root 权限。是否立即激活 %1$s 越狱模式？</string>
     <string name="activate_selected_jailbreak">激活</string>
