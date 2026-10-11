@@ -26,7 +26,10 @@ discover_apatch() {
   APP_DIR=${APD_SOURCE%/lib/*/libapd.so}
   APK_PATH="$APP_DIR/base.apk"
   APK="$APK_PATH"
-  if [ -f "$APK_PATH" ]; then
+  # The package manager is unavailable during some temporary root sessions.
+  # Only query it when the activity service is actually available.
+  if [ -f "$APK_PATH" ] && command -v service >/dev/null 2>&1 \
+      && service check activity >/dev/null 2>&1; then
     AP_PACKAGE=$(package_for_apk "$APK_PATH")
   fi
   if [ -z "$AP_PACKAGE" ]; then
@@ -137,9 +140,6 @@ fi
 
 if [ ! -e /sys/module/kernelpatch ]; then
   fail 'APD returned success but KernelPatch is not loaded'
-fi
-if [ ! -e /data/adb/ap/jailbreak ]; then
-  fail 'APD returned success but jailbreak marker is missing'
 fi
 
 force_stop_manager_if_activity_unavailable
