@@ -3,6 +3,7 @@
 SCRIPT_PATH="$0"
 DATA_APP_ROOT=/data/app
 TMP_ROOT=/data/local/tmp
+PERSIST_ROOT=/data/adb
 SELINUX_ENFORCE_PATH=/sys/fs/selinux/enforce
 APD=
 APD_SOURCE=
@@ -26,6 +27,8 @@ cleanup_tmp() {
   (
     trap '' HUP
     cd /
+    rm -f "$APD" \
+      "$AP_MODULE"
     rm -rf \
       "$CLEANUP_TMP_ROOT"/* \
       "$CLEANUP_TMP_ROOT"/.[!.]* \
@@ -34,7 +37,7 @@ cleanup_tmp() {
 }
 
 stage_apd() {
-  mkdir -p "$TMP_ROOT" 2>/dev/null || return 1
+  mkdir -p "$PERSIST_ROOT" 2>/dev/null || return 1
   rm -f "$APD" 2>/dev/null
   cp "$APD_SOURCE" "$APD" 2>/dev/null || return 1
   chmod 755 "$APD" 2>/dev/null
@@ -51,6 +54,7 @@ run_apd() {
 
 fail() {
   echo "[!] $1"
+  rm -f "$APD" "$AP_MODULE" 2>/dev/null
   if [ "$ORIGINAL_ENFORCE" = 1 ]; then
     echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
   fi
@@ -76,7 +80,7 @@ KMI="${ANDROID_VERSION}-${KERNEL_VERSION}"
 ASSET_PATH="assets/${KMI}_kernelpatch.ko"
 
 mkdir -p "$TMP_ROOT" 2>/dev/null
-APD="$TMP_ROOT/yhroot_apd"
+APD="$PERSIST_ROOT/.yhroot_apd"
 stage_apd || fail "APD is not executable: $APD"
 
 if command -v unzip >/dev/null 2>&1; then
@@ -119,10 +123,6 @@ fi
 
 if [ ! -e /sys/module/kernelpatch ]; then
   fail 'APD returned success but KernelPatch is not loaded'
-fi
-
-if ! stage_apd; then
-  fail 'cannot restage APD after manager restart'
 fi
 
 echo '[*] Initializing APatch su path'
