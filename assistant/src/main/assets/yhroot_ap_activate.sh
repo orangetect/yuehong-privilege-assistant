@@ -5,6 +5,7 @@ DATA_APP_ROOT=/data/app
 TMP_ROOT=/data/local/tmp
 SELINUX_ENFORCE_PATH=/sys/fs/selinux/enforce
 APD=
+APD_SOURCE=
 APK=
 AP_PACKAGE=
 AP_MODULE="$TMP_ROOT/yhroot_ap_kernelpatch.ko"
@@ -19,10 +20,10 @@ package_for_apk() {
 }
 
 discover_apatch() {
-  APD=$(find "$DATA_APP_ROOT" -name libapd.so 2>/dev/null | head -n 1)
-  [ -n "$APD" ] || return 1
+  APD_SOURCE=$(find "$DATA_APP_ROOT" -name libapd.so 2>/dev/null | head -n 1)
+  [ -n "$APD_SOURCE" ] || return 1
 
-  APP_DIR=${APD%/lib/*/libapd.so}
+  APP_DIR=${APD_SOURCE%/lib/*/libapd.so}
   APK_PATH="$APP_DIR/base.apk"
   APK="$APK_PATH"
   if [ -f "$APK_PATH" ]; then
@@ -76,11 +77,6 @@ if ! discover_apatch; then
   fail 'APatch/FolkPatch APK or libapd.so was not found'
 fi
 
-chmod 755 "$APD" 2>/dev/null
-if [ ! -x "$APD" ]; then
-  fail "APD is not executable: $APD"
-fi
-
 KERNEL_RELEASE=$(uname -r)
 KERNEL_VERSION=$(printf '%s\n' "$KERNEL_RELEASE" | cut -d- -f1 | cut -d. -f1-2)
 ANDROID_VERSION=$(printf '%s\n' "$KERNEL_RELEASE" | grep -o 'android[0-9]*' | head -1)
@@ -91,6 +87,14 @@ KMI="${ANDROID_VERSION}-${KERNEL_VERSION}"
 ASSET_PATH="assets/${KMI}_kernelpatch.ko"
 
 mkdir -p "$TMP_ROOT" 2>/dev/null
+APD="$TMP_ROOT/yhroot_apd"
+rm -f "$APD"
+cp "$APD_SOURCE" "$APD" 2>/dev/null || fail 'cannot stage APD runtime'
+chmod 755 "$APD" 2>/dev/null
+if [ ! -x "$APD" ]; then
+  fail "APD is not executable: $APD"
+fi
+
 if command -v unzip >/dev/null 2>&1; then
   unzip -p "$APK" "$ASSET_PATH" > "$AP_MODULE" 2>/dev/null
   EXTRACT_RC=$?
@@ -133,6 +137,9 @@ fi
 
 if [ ! -e /sys/module/kernelpatch ]; then
   fail 'APD returned success but KernelPatch is not loaded'
+fi
+if [ ! -e /data/adb/ap/jailbreak ]; then
+  fail 'APD returned success but jailbreak marker is missing'
 fi
 
 force_stop_manager_if_activity_unavailable
