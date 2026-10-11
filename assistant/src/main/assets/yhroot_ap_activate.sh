@@ -10,15 +10,6 @@ APK=
 AP_PACKAGE=
 AP_MODULE="$TMP_ROOT/yhroot_ap_kernelpatch.ko"
 
-package_for_apk() {
-  APK_PATH="$1"
-  PACKAGE_LINE=$(cmd package list packages -f 2>/dev/null | grep -F "package:$APK_PATH=" | head -n 1)
-  if [ -z "$PACKAGE_LINE" ]; then
-    PACKAGE_LINE=$(pm list packages -f 2>/dev/null | grep -F "package:$APK_PATH=" | head -n 1)
-  fi
-  [ -n "$PACKAGE_LINE" ] && printf '%s\n' "${PACKAGE_LINE##*=}"
-}
-
 discover_apatch() {
   APD_SOURCE=$(find "$DATA_APP_ROOT" -name libapd.so 2>/dev/null | head -n 1)
   [ -n "$APD_SOURCE" ] || return 1
@@ -26,29 +17,8 @@ discover_apatch() {
   APP_DIR=${APD_SOURCE%/lib/*/libapd.so}
   APK_PATH="$APP_DIR/base.apk"
   APK="$APK_PATH"
-  # The package manager is unavailable during some temporary root sessions.
-  # Only query it when the activity service is actually available.
-  if [ -f "$APK_PATH" ] && command -v service >/dev/null 2>&1 \
-      && service check activity >/dev/null 2>&1; then
-    AP_PACKAGE=$(package_for_apk "$APK_PATH")
-  fi
-  if [ -z "$AP_PACKAGE" ]; then
-    INSTALL_DIR=${APP_DIR##*/}
-    AP_PACKAGE=${INSTALL_DIR%%-*}
-  fi
-}
-
-force_stop_manager_if_activity_unavailable() {
-  [ -n "$AP_PACKAGE" ] || return 0
-  if command -v service >/dev/null 2>&1 && service check activity >/dev/null 2>&1; then
-    return 0
-  fi
-  for PID in $(pidof "$AP_PACKAGE" 2>/dev/null); do
-    case "$PID" in
-      ''|1|$$) continue ;;
-    esac
-    kill -9 "$PID" 2>/dev/null
-  done
+  INSTALL_DIR=${APP_DIR##*/}
+  AP_PACKAGE=${INSTALL_DIR%%-*}
 }
 
 cleanup_tmp() {
@@ -127,12 +97,9 @@ if [ "$ORIGINAL_ENFORCE" = 1 ]; then
 fi
 
 echo "[*] Kernel KMI: $KMI"
+echo "[*] APatch package: $AP_PACKAGE"
 echo "[*] Loading matching KernelPatch asset"
-if command -v service >/dev/null 2>&1 && service check activity >/dev/null 2>&1 && [ -n "$AP_PACKAGE" ]; then
-  "$APD" late-load --module "$AP_MODULE" --package-name "$AP_PACKAGE"
-else
-  "$APD" late-load --module "$AP_MODULE"
-fi
+"$APD" late-load --magica 37099 --module "$AP_MODULE" --package-name "$AP_PACKAGE"
 APD_RC=$?
 if [ "$APD_RC" -ne 0 ]; then
   fail "APD late-load failed with exit code $APD_RC" "$APD_RC"
@@ -142,6 +109,5 @@ if [ ! -e /sys/module/kernelpatch ]; then
   fail 'APD returned success but KernelPatch is not loaded'
 fi
 
-force_stop_manager_if_activity_unavailable
 cleanup_tmp
 echo '[+] APatch jailbreak activation complete; /data/local/tmp cleared'
