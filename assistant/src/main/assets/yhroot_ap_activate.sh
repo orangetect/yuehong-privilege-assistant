@@ -118,5 +118,12 @@ if [ ! -e /sys/module/kernelpatch ]; then
   fail 'APD returned success but KernelPatch is not loaded'
 fi
 
+echo '[*] Initializing APatch su path'
+run_apd --superkey su post-fs-data
+POST_FS_RC=$?
+if [ "$POST_FS_RC" -ne 0 ]; then
+  fail "APD post-fs-data failed with exit code $POST_FS_RC" "$POST_FS_RC"
+fi
+
 cleanup_tmp
 echo '[+] APatch jailbreak activation complete; /data/local/tmp cleared'
