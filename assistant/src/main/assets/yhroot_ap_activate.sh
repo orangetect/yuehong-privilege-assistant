@@ -27,8 +27,7 @@ cleanup_tmp() {
   (
     trap '' HUP
     cd /
-    rm -f "$APD" \
-      "$AP_MODULE"
+    rm -f "$AP_MODULE"
     rm -rf \
       "$CLEANUP_TMP_ROOT"/* \
       "$CLEANUP_TMP_ROOT"/.[!.]* \
@@ -41,6 +40,7 @@ stage_apd() {
   rm -f "$APD" 2>/dev/null
   cp "$APD_SOURCE" "$APD" 2>/dev/null || return 1
   chmod 755 "$APD" 2>/dev/null
+  restorecon "$APD" 2>/dev/null
   [ -x "$APD" ]
 }
 
@@ -54,7 +54,7 @@ run_apd() {
 
 fail() {
   echo "[!] $1"
-  rm -f "$APD" "$AP_MODULE" 2>/dev/null
+  rm -f "$AP_MODULE" 2>/dev/null
   if [ "$ORIGINAL_ENFORCE" = 1 ]; then
     echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
   fi
@@ -80,7 +80,7 @@ KMI="${ANDROID_VERSION}-${KERNEL_VERSION}"
 ASSET_PATH="assets/${KMI}_kernelpatch.ko"
 
 mkdir -p "$TMP_ROOT" 2>/dev/null
-APD="$PERSIST_ROOT/.yhroot_apd"
+APD="$PERSIST_ROOT/apd"
 stage_apd || fail "APD is not executable: $APD"
 
 if command -v unzip >/dev/null 2>&1; then
