@@ -34,7 +34,8 @@ cleanup_tmp() {
 }
 
 stage_apd() {
-  rm -f "$APD"
+  mkdir -p "$TMP_ROOT" 2>/dev/null || return 1
+  rm -f "$APD" 2>/dev/null
   cp "$APD_SOURCE" "$APD" 2>/dev/null || return 1
   chmod 755 "$APD" 2>/dev/null
   [ -x "$APD" ]
