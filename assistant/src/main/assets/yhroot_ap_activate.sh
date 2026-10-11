@@ -4,6 +4,7 @@ SCRIPT_PATH="$0"
 DATA_APP_ROOT=/data/app
 TMP_ROOT=/data/local/tmp
 PERSIST_ROOT=/data/adb
+JAILBREAK_MARKER="$PERSIST_ROOT/ap/jailbreak"
 SELINUX_ENFORCE_PATH=/sys/fs/selinux/enforce
 APD=
 APD_SOURCE=
@@ -50,10 +51,6 @@ run_apd() {
   else
     "$APD" "$@"
   fi
-}
-
-run_apd_root() {
-  "$APD" "$@"
 }
 
 fail() {
@@ -129,11 +126,8 @@ if [ ! -e /sys/module/kernelpatch ]; then
   fail 'APD returned success but KernelPatch is not loaded'
 fi
 
-echo '[*] Initializing APatch su path'
-run_apd_root --superkey su post-fs-data
-POST_FS_RC=$?
-if [ "$POST_FS_RC" -ne 0 ]; then
-  fail "APD post-fs-data failed with exit code $POST_FS_RC" "$POST_FS_RC"
+if [ ! -e "$JAILBREAK_MARKER" ]; then
+  fail "APD returned success but jailbreak marker is missing: $JAILBREAK_MARKER"
 fi
 
 cleanup_tmp
