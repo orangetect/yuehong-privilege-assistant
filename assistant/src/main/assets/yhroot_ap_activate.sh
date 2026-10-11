@@ -33,6 +33,14 @@ cleanup_tmp() {
   ) </dev/null >/dev/null 2>&1
 }
 
+run_apd() {
+  if [ -x /system/bin/runcon ]; then
+    /system/bin/runcon u:r:shell:s0 "$APD" "$@"
+  else
+    "$APD" "$@"
+  fi
+}
+
 fail() {
   echo "[!] $1"
   if [ "$ORIGINAL_ENFORCE" = 1 ]; then
@@ -99,7 +107,7 @@ fi
 echo "[*] Kernel KMI: $KMI"
 echo "[*] APatch package: $AP_PACKAGE"
 echo "[*] Loading matching KernelPatch asset"
-"$APD" late-load --magica 37099 --module "$AP_MODULE" --package-name "$AP_PACKAGE"
+run_apd late-load --magica 37099 --module "$AP_MODULE" --package-name "$AP_PACKAGE"
 APD_RC=$?
 if [ "$APD_RC" -ne 0 ]; then
   fail "APD late-load failed with exit code $APD_RC" "$APD_RC"
