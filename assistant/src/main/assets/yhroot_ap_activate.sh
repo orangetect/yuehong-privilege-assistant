@@ -107,7 +107,8 @@ fi
 echo "[*] Kernel KMI: $KMI"
 echo "[*] APatch package: $AP_PACKAGE"
 echo "[*] Loading matching KernelPatch asset"
-run_apd late-load --magica 37099 --module "$AP_MODULE" --package-name "$AP_PACKAGE"
+echo "[*] Running APD late-load from the existing root session"
+run_apd late-load --module "$AP_MODULE" --package-name "$AP_PACKAGE"
 APD_RC=$?
 if [ "$APD_RC" -ne 0 ]; then
   fail "APD late-load failed with exit code $APD_RC" "$APD_RC"
