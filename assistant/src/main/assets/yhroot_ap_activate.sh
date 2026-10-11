@@ -33,6 +33,13 @@ cleanup_tmp() {
   ) </dev/null >/dev/null 2>&1
 }
 
+stage_apd() {
+  rm -f "$APD"
+  cp "$APD_SOURCE" "$APD" 2>/dev/null || return 1
+  chmod 755 "$APD" 2>/dev/null
+  [ -x "$APD" ]
+}
+
 run_apd() {
   if [ -x /system/bin/runcon ]; then
     /system/bin/runcon u:r:shell:s0 "$APD" "$@"
@@ -69,12 +76,7 @@ ASSET_PATH="assets/${KMI}_kernelpatch.ko"
 
 mkdir -p "$TMP_ROOT" 2>/dev/null
 APD="$TMP_ROOT/yhroot_apd"
-rm -f "$APD"
-cp "$APD_SOURCE" "$APD" 2>/dev/null || fail 'cannot stage APD runtime'
-chmod 755 "$APD" 2>/dev/null
-if [ ! -x "$APD" ]; then
-  fail "APD is not executable: $APD"
-fi
+stage_apd || fail "APD is not executable: $APD"
 
 if command -v unzip >/dev/null 2>&1; then
   unzip -p "$APK" "$ASSET_PATH" > "$AP_MODULE" 2>/dev/null
@@ -116,6 +118,10 @@ fi
 
 if [ ! -e /sys/module/kernelpatch ]; then
   fail 'APD returned success but KernelPatch is not loaded'
+fi
+
+if ! stage_apd; then
+  fail 'cannot restage APD after manager restart'
 fi
 
 echo '[*] Initializing APatch su path'
