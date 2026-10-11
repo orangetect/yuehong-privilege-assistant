@@ -52,6 +52,10 @@ run_apd() {
   fi
 }
 
+run_apd_root() {
+  "$APD" "$@"
+}
+
 fail() {
   echo "[!] $1"
   rm -f "$AP_MODULE" 2>/dev/null
@@ -126,7 +130,7 @@ if [ ! -e /sys/module/kernelpatch ]; then
 fi
 
 echo '[*] Initializing APatch su path'
-run_apd --superkey su post-fs-data
+run_apd_root --superkey su post-fs-data
 POST_FS_RC=$?
 if [ "$POST_FS_RC" -ne 0 ]; then
   fail "APD post-fs-data failed with exit code $POST_FS_RC" "$POST_FS_RC"
