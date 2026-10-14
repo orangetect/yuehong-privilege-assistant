@@ -167,7 +167,7 @@
     <string name="dfroot_device_info_title">设备信息</string>
     <string name="dfroot_device_info">%1$s %2$s · Android 内核 %3$s</string>
     <string name="dfroot_action_title">自动获取 Root</string>
-    <string name="dfroot_action_body">获取 Root 权限后自动执行 yhroot_ksu_activate.sh。</string>
+    <string name="dfroot_action_body">获取 Root 权限后自动执行当前选择的激活脚本。</string>
     <string name="dfroot_status_ready">等待开始</string>
     <string name="dfroot_status_running">运行中</string>
     <string name="dfroot_status_armed">需要重启</string>
@@ -175,8 +175,8 @@
     <string name="dfroot_armed">本次开机已经布防 DirtyFrag，请重启后再试。</string>
     <string name="dfroot_running">正在运行 DirtyFrag…</string>
     <string name="dfroot_run">运行 DirtyFrag</string>
-    <string name="dfroot_finished">\nDirtyFrag 流程已完成，KernelSU 激活脚本执行成功。请在 KernelSU 管理器中查看激活状态。</string>
+    <string name="dfroot_finished">\nDirtyFrag 流程已完成，已执行 %1$s 激活脚本且脚本返回成功。请在 %1$s 管理器中查看激活状态。</string>
     <string name="dfroot_failed">\nDirtyFrag 失败（退出码 %1$d）。</string>
     <string name="dfroot_clear_log">清空日志</string>
-    <string name="dfroot_log_empty">DirtyFrag 输出和 yhroot_ksu_activate.sh 日志会显示在这里。</string>
+    <string name="dfroot_log_empty">DirtyFrag 输出和当前激活脚本日志会显示在这里。</string>
 </resources>

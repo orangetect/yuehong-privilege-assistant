@@ -118,7 +118,10 @@ internal fun DfRootScreen(
                             }
                             appendLog(
                                 if (outcome.getOrNull() == 0) {
-                                    context.getString(R.string.dfroot_finished)
+                                    context.getString(
+                                        R.string.dfroot_finished,
+                                        context.getString(activationMode.labelResource),
+                                    )
                                 } else {
                                     context.getString(
                                         R.string.dfroot_failed,

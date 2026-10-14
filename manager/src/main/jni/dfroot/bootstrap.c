@@ -24,9 +24,10 @@
 #define MODE_FILE       DIRTYFRAG_DIR "/.yhroot_activation_mode"
 #define KSU_SCRIPT_PATH DIRTYFRAG_DIR "/yhroot_ksu_activate.sh"
 #define AP_SCRIPT_PATH  DIRTYFRAG_DIR "/yhroot_ap_activate.sh"
-#define GENERIC_SCRIPT_PATH DIRTYFRAG_DIR "/yhroot_activate.sh"
 #define KSU_SCRIPT_LOG  DIRTYFRAG_DIR "/yhroot_ksu_activate.log"
 #define AP_SCRIPT_LOG   DIRTYFRAG_DIR "/yhroot_ap_activate.log"
+#define ACTIVATION_OUTPUT_LOG DIRTYFRAG_DIR "/.yhroot_activation_output.log"
+#define ACTIVATION_STATUS_FILE DIRTYFRAG_DIR "/.yhroot_activation_status"
 #define HELPER_DIR      DIRTYFRAG_DIR "/.yhroot-bin"
 #define TIMEOUT_HELPER  HELPER_DIR "/timeout"
 #define LOAD_POLICY_HELPER HELPER_DIR "/load_policy"
@@ -113,6 +114,54 @@ static int run_ctx(const char *ctx, char *const argv[])
     int status;
     if (waitpid(pid, &status, 0) < 0) return -1;
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+static int run_activation_script(const char *script_path, int output_fd)
+{
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        if (dup2(output_fd, STDOUT_FILENO) < 0 ||
+            dup2(output_fd, STDERR_FILENO) < 0) _exit(126);
+        close(output_fd);
+        execv("/system/bin/sh", (char *const[]){
+            "/system/bin/sh", (char *)script_path, NULL
+        });
+        fprintf(stderr, "[DirtyFrag] cannot start /system/bin/sh: %s\n", strerror(errno));
+        _exit(127);
+    }
+
+    int status;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return -1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) :
+           WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
+}
+
+static void write_activation_status(const char *mode, const char *script_path,
+                                    int rc, int started)
+{
+    FILE *f = fopen(ACTIVATION_STATUS_FILE, started ? "w" : "a");
+    if (!f) return;
+    if (started) {
+        const char *name = strrchr(script_path, '/');
+        fprintf(f, "mode=%s\nscript=%s\nstarted=1\n",
+                mode, name ? name + 1 : script_path);
+    } else {
+        fprintf(f, "exit=%d\n", rc);
+    }
+    fclose(f);
+    chmod(ACTIVATION_STATUS_FILE, 0644);
+}
+
+static void stream_activation_output(void)
+{
+    FILE *f = fopen(ACTIVATION_OUTPUT_LOG, "r");
+    if (!f) return;
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) fputs(line, stdout);
+    fclose(f);
 }
 
 static void touch(const char *path)
@@ -228,7 +277,14 @@ static int run_yhroot_activation(void)
     const int apatch = !strcmp(mode, "apatch");
     const char *script_path = apatch ? AP_SCRIPT_PATH : KSU_SCRIPT_PATH;
     const char *script_log = apatch ? AP_SCRIPT_LOG : KSU_SCRIPT_LOG;
-    if (access(script_path, X_OK) != 0) script_path = GENERIC_SCRIPT_PATH;
+    unlink(ACTIVATION_OUTPUT_LOG);
+    unlink(ACTIVATION_STATUS_FILE);
+    write_activation_status(mode, script_path, 0, 1);
+
+    if (access(script_path, X_OK) != 0) {
+        write_activation_status(mode, script_path, 127, 0);
+        return 127;
+    }
 
     /* The selected script discovers the installed manager after DirtyFrag
        gives it root. Keep these values explicit for scripts that use them. */
@@ -248,17 +304,36 @@ static int run_yhroot_activation(void)
      * be killed by the policy transition while the script records the result
      * and continues to restore enforcing mode.
      */
-    if (prepare_activation_helpers() < 0) return -1;
+    if (prepare_activation_helpers() < 0) {
+        write_activation_status(mode, script_path, -1, 0);
+        return -1;
+    }
 
-    int rc = run_ctx(NULL, (char *const[]){
-        "/system/bin/sh", (char *)script_path, NULL
-    });
+    int output_fd = open(ACTIVATION_OUTPUT_LOG,
+                         O_CREAT | O_WRONLY | O_TRUNC, 0600);
+    if (output_fd < 0) {
+        write_activation_status(mode, script_path, -1, 0);
+        remove_activation_helpers();
+        return -1;
+    }
+    int rc = run_activation_script(script_path, output_fd);
+    close(output_fd);
+    write_activation_status(mode, script_path, rc, 0);
+    stream_activation_output();
     remove_activation_helpers();
     return rc;
 }
 
 int main(void)
 {
+    /* Shell scripts require valid standard descriptors after the init-context
+       exec. The hook can inherit a closed descriptor from the zygote worker. */
+    for (int fd = 0; fd <= STDERR_FILENO; fd++) {
+        if (fcntl(fd, F_GETFD) >= 0) continue;
+        int null_fd = open("/dev/null", O_RDWR);
+        if (null_fd < 0) continue;
+        if (null_fd != fd) { dup2(null_fd, fd); close(null_fd); }
+    }
     /* Marker sequence consumed by the YueHong runner. */
     touch("/dev/dfm0");
     touch("/dev/dfm1");

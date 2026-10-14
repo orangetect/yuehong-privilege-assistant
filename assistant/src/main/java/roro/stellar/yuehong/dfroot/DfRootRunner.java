@@ -34,10 +34,11 @@ public final class DfRootRunner {
     private static final String WORK_DIRECTORY = "dfroot";
     private static final String BOOTSTRAP_FILE = "bootstrap";
     private static final String MODE_FILE = ".yhroot_activation_mode";
-    private static final String GENERIC_SCRIPT_FILE = "yhroot_activate.sh";
     private static final String KSU_SCRIPT_FILE = "yhroot_ksu_activate.sh";
     private static final String APATCH_SCRIPT_FILE = "yhroot_ap_activate.sh";
     private static final String KSU_LOG_FILE = "yhroot_ksu_activate.log";
+    private static final String ACTIVATION_OUTPUT_FILE = ".yhroot_activation_output.log";
+    private static final String ACTIVATION_STATUS_FILE = ".yhroot_activation_status";
 
     private DfRootRunner() {
     }
@@ -68,18 +69,14 @@ public final class DfRootRunner {
         // the selected mode in a device-protected marker so bootstrap can
         // choose the matching script after it adopts the zygote context.
         writeModeMarker(work, activationMode);
-        deleteQuietly(new File(work, GENERIC_SCRIPT_FILE));
         deleteQuietly(new File(work, KSU_SCRIPT_FILE));
         deleteQuietly(new File(work, APATCH_SCRIPT_FILE));
         File selectedScript = new File(work, activationMode.getScriptAsset());
         stageAsset(deContext, activationMode.getScriptAsset(),
                 selectedScript);
-        // Keep a fixed hand-off path as a final fallback. The DirtyFrag
-        // usermode helper intentionally launches bootstrap with a minimal
-        // environment, so mode selection must not depend on inherited env.
-        stageAsset(deContext, activationMode.getScriptAsset(),
-                new File(work, GENERIC_SCRIPT_FILE));
         deleteQuietly(new File(work, KSU_LOG_FILE));
+        deleteQuietly(new File(work, ACTIVATION_OUTPUT_FILE));
+        deleteQuietly(new File(work, ACTIVATION_STATUS_FILE));
 
         File bin = new File(deContext.getApplicationInfo().nativeLibraryDir, NATIVE_BIN);
         if (!bin.isFile()) throw new IOException(NATIVE_BIN + " is missing from nativeLibraryDir");
@@ -114,6 +111,11 @@ public final class DfRootRunner {
             int rc = runBinary(bin, reporter, encapSock.getPort(), spiObj.getSpi(),
                     aesKey, senderPort, activationMode);
             reportActivationLog(work, activationMode, reporter);
+            reportActivationTrace(work, activationMode, reporter);
+            if (rc == 0 && !activationTraceSucceeded(work, activationMode)) {
+                reporter.report("[DirtyFrag] activation script invocation was not verified\n");
+                return 1;
+            }
             return rc;
         } finally {
             transform.close();
@@ -154,6 +156,54 @@ public final class DfRootRunner {
             }
         } catch (IOException error) {
             reporter.report("[DirtyFrag] unable to read activation log: " + error + "\n");
+        }
+    }
+
+    private static void reportActivationTrace(File work, JailbreakActivationMode activationMode,
+                                              DfRootReporter reporter) {
+        File status = new File(work, ACTIVATION_STATUS_FILE);
+        File output = new File(work, ACTIVATION_OUTPUT_FILE);
+        if (status.isFile()) {
+            reporter.report("\n--- DirtyFrag activation trace (" +
+                    activationMode.getPreferenceValue() + ") ---\n");
+            reportFile(status, reporter);
+        }
+        if (output.isFile()) {
+            reporter.report("\n--- activation script output ---\n");
+            reportFile(output, reporter);
+        }
+    }
+
+    private static void reportFile(File file, DfRootReporter reporter) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(file), StandardCharsets.UTF_8))) {
+            for (String line; (line = reader.readLine()) != null; ) {
+                reporter.report(line + "\n");
+            }
+        } catch (IOException error) {
+            reporter.report("[DirtyFrag] unable to read " + file.getName() + ": " + error + "\n");
+        }
+    }
+
+    private static boolean activationTraceSucceeded(File work,
+                                                    JailbreakActivationMode activationMode) {
+        File status = new File(work, ACTIVATION_STATUS_FILE);
+        if (!status.isFile()) return false;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(status), StandardCharsets.UTF_8))) {
+            boolean mode = false;
+            boolean script = false;
+            boolean started = false;
+            boolean exit = false;
+            for (String line; (line = reader.readLine()) != null; ) {
+                mode |= line.equals("mode=" + activationMode.getPreferenceValue());
+                script |= line.equals("script=" + activationMode.getScriptAsset());
+                started |= line.equals("started=1");
+                exit |= line.equals("exit=0");
+            }
+            return mode && script && started && exit;
+        } catch (IOException ignored) {
+            return false;
         }
     }
 
