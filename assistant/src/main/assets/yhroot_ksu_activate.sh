@@ -4,18 +4,21 @@ SCRIPT_PATH="$0"
 DATA_APP_ROOT="${YHROOT_DATA_APP_ROOT:-/data/app}"
 TMP_ROOT="${YHROOT_TMP_ROOT:-/data/local/tmp}"
 SELINUX_ENFORCE_PATH="${YHROOT_SELINUX_ENFORCE_PATH:-/sys/fs/selinux/enforce}"
-KSUD=
+KSUD="${YHROOT_KSUD:-}"
 KSU_APK=
-KSU_PACKAGE=
+KSU_PACKAGE="${YHROOT_KSU_PACKAGE:-}"
+LOG="${YHROOT_LOG:-}"
 
 case "$SCRIPT_PATH" in
   */.ghostlock_root.sh)
-    LOG="${SCRIPT_PATH%/*}/.ghostlock_ksu.log"
+    [ -n "$LOG" ] || LOG="${SCRIPT_PATH%/*}/.ghostlock_ksu.log"
     ;;
   *)
-    LOG="$TMP_ROOT/yhroot_ksu_activate.log"
+    [ -n "$LOG" ] || LOG="$TMP_ROOT/yhroot_ksu_activate.log"
     ;;
 esac
+
+mkdir -p "$TMP_ROOT" 2>/dev/null
 
 package_for_apk() {
   APK_PATH="$1"
@@ -29,6 +32,10 @@ package_for_apk() {
 }
 
 discover_ksud() {
+  if [ -n "$KSUD" ] && [ -f "$KSUD" ]; then
+    echo "[*] using staged ksud=$KSUD" >>"$LOG"
+    return 0
+  fi
   for CANDIDATE in "$DATA_APP_ROOT"/*/*/lib/arm64/libksud.so; do
     [ -f "$CANDIDATE" ] || continue
     APP_DIR=${CANDIDATE%/lib/arm64/libksud.so}
@@ -48,12 +55,19 @@ discover_ksud() {
 }
 
 cleanup_tmp_before_enforcing() {
+  if [ "${YHROOT_SKIP_TMP_CLEANUP:-0}" = "1" ]; then
+    echo '[*] temporary cleanup skipped by caller' >>"$LOG"
+    return 0
+  fi
   CLEANUP_SCRIPT="$SCRIPT_PATH"
   CLEANUP_LOG="$LOG"
   CLEANUP_TMP_ROOT="$TMP_ROOT"
   (
     trap '' HUP
-    rm -f "$CLEANUP_SCRIPT" "$CLEANUP_LOG"
+    rm -f "$CLEANUP_SCRIPT"
+    if [ "${YHROOT_PRESERVE_LOG:-0}" != "1" ]; then
+      rm -f "$CLEANUP_LOG"
+    fi
     rm -rf \
       "$CLEANUP_TMP_ROOT"/* \
       "$CLEANUP_TMP_ROOT"/.[!.]* \
@@ -91,10 +105,14 @@ if ! grep -q kernelsu /proc/modules 2>/dev/null; then
     echo '[!] ksud exists but is not executable' | tee -a "$LOG"
     exit 1
   fi
-  KVER=$(uname -r | cut -d. -f1-2)
-  AVER=$(uname -r | grep -o 'android[0-9]*' | head -1)
-  KMI="${AVER}-${KVER}"
-  if [ -z "$AVER" ] || [ -z "$KVER" ]; then KMI=android15-6.6; fi
+  if [ -n "${YHROOT_KMI:-}" ]; then
+    KMI="$YHROOT_KMI"
+  else
+    KVER=$(uname -r | cut -d. -f1-2)
+    AVER=$(uname -r | grep -o 'android[0-9]*' | head -1)
+    KMI="${AVER}-${KVER}"
+    if [ -z "$AVER" ] || [ -z "$KVER" ]; then KMI=android15-6.6; fi
+  fi
   echo "[*] late-load kmi=$KMI" >>"$LOG"
   "$KSUD" late-load --kmi "$KMI" --allow-shell --package-name "$KSU_PACKAGE" >>"$LOG" 2>&1
   LATE_LOAD_RC=$?
@@ -119,6 +137,17 @@ echo '[+] KernelSU module loaded' | tee -a "$LOG"
 echo "[*] kernelsu.ko loaded; root pid=$$ uid=$(id -u)" >>"$LOG"
 echo 0 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
 echo "[*] setenforce 0 rc=$?" >>"$LOG"
+
+if [ "${YHROOT_DIRTYFRAG:-0}" = "1" ]; then
+  # The DirtyFrag bootstrap is the root hand-off process. A synchronous
+  # policy reload here can invalidate its SELinux SID and terminate the
+  # shell after KernelSU is already active. Keep this cleanup best-effort and
+  # report the real result: KernelSU is active, SELinux remains permissive.
+  echo '[+] KernelSU activation complete; DirtyFrag policy reload skipped to preserve bootstrap' | tee -a "$LOG"
+  echo '[!] SELinux policy remains permissive in DirtyFrag mode' | tee -a "$LOG"
+  rm -f "$SCRIPT_PATH" 2>/dev/null
+  exit 0
+fi
 
 FIXUP_RC=1
 for i in $(seq 1 10); do

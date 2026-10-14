@@ -2,6 +2,7 @@ package roro.stellar.yuehong.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.system.Os
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -24,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import roro.stellar.yuehong.BuildConfig
+import roro.stellar.yuehong.dfroot.DfRootActivity
 import roro.stellar.yuehong.ghostlock.GhostLockActivity
 import roro.stellar.yuehong.shell.HttpStartupVerificationApi
 import roro.stellar.yuehong.shell.StartupVerification
@@ -57,12 +59,21 @@ fun StellarAssistantApp() {
         val ghostLockKernelAvailable = remember(kernelRelease) {
             GHOSTLOCK_KERNEL_PATTERN.containsMatchIn(kernelRelease)
         }
+        val dfRootPlatformAvailable = remember {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+        }
 
         fun openGhostLockMode() {
             val activity = context as? Activity ?: return
             activity.startActivity(Intent(context, GhostLockActivity::class.java).apply {
                 putExtra(JailbreakActivationMode.INTENT_EXTRA, activationMode.preferenceValue)
             })
+        }
+
+        fun openDfRootMode() {
+            if (!dfRootPlatformAvailable) return
+            val activity = context as? Activity ?: return
+            activity.startActivity(Intent(context, DfRootActivity::class.java))
         }
 
         fun openStellarMode() {
@@ -129,12 +140,14 @@ fun StellarAssistantApp() {
 
                 AppPage.ModeSelection -> ModeSelectionScreen(
                     ghostLockKernelAvailable = ghostLockKernelAvailable,
+                    dfRootPlatformAvailable = dfRootPlatformAvailable,
                     activationMode = activationMode,
                     onActivationModeChange = { mode ->
                         activationMode = mode
                         JailbreakActivationMode.write(context, mode)
                     },
                     onOpenGhostLock = ::openGhostLockMode,
+                    onOpenDfRoot = ::openDfRootMode,
                     onOpenStellar = ::openStellarMode,
                     onOpenVivoWired = ::openVivoWiredMode,
                 )

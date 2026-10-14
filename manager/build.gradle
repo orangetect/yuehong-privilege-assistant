@@ -29,7 +29,12 @@ android {
 
         externalNativeBuild {
             cmake {
-                arguments '-DANDROID_STL=none'
+                arguments '-DANDROID_STL=none',
+                        '-DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY',
+                        '-DCMAKE_C_COMPILER_WORKS=1',
+                        '-DCMAKE_CXX_COMPILER_WORKS=1',
+                        '-DCMAKE_C_COMPILER_FORCED=TRUE',
+                        '-DCMAKE_CXX_COMPILER_FORCED=TRUE'
                 abiFilters 'arm64-v8a'
             }
         }
@@ -53,6 +58,8 @@ android {
             "keyPassword"
     ].every { signingProps.getProperty(it)?.trim() } &&
             rootProject.file(signingProps.getProperty("storeFile", "")).exists()
+
+    project.ext.yuehongHasReleaseSigning = hasReleaseSigning
 
     signingConfigs {
         sign {
@@ -147,6 +154,20 @@ android.applicationVariants.configureEach { variant ->
                     into apkDir
                 }
             }
+        }
+    }
+}
+
+// Never let a release build silently fall back to the debug certificate. The
+// official client rejects that certificate during startup verification.
+def releaseSigningConfigured = project.ext.yuehongHasReleaseSigning
+tasks.matching { it.name == 'validateSigningRelease' }.configureEach {
+    doFirst {
+        if (!releaseSigningConfigured) {
+            throw new GradleException(
+                    'Release signing is not configured. Create keystore.properties with '
+                            + 'storeFile, storePassword, keyAlias and keyPassword.'
+            )
         }
     }
 }

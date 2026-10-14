@@ -37,9 +37,11 @@ import roro.stellar.yuehong.shell.JailbreakActivationMode
 @Composable
 internal fun ModeSelectionScreen(
     ghostLockKernelAvailable: Boolean,
+    dfRootPlatformAvailable: Boolean,
     activationMode: JailbreakActivationMode,
     onActivationModeChange: (JailbreakActivationMode) -> Unit,
     onOpenGhostLock: () -> Unit,
+    onOpenDfRoot: () -> Unit,
     onOpenStellar: () -> Unit,
     onOpenVivoWired: () -> Unit,
 ) {
@@ -72,6 +74,25 @@ internal fun ModeSelectionScreen(
                     text = stringResource(R.string.mode_stellar_open),
                     fontWeight = FontWeight.SemiBold,
                 )
+            }
+            MotionButton(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = dfRootPlatformAvailable,
+                onClick = onOpenDfRoot,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.mode_dfroot_open),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = stringResource(R.string.mode_dfroot_kernel_required),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
             }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),

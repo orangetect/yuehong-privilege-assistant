@@ -11,6 +11,11 @@
             android:label="@string/ghostlock_app_name"
             android:theme="@style/Theme.YueHong.GhostLock" />
         <activity
+            android:name=".dfroot.DfRootActivity"
+            android:exported="false"
+            android:label="@string/dfroot_title"
+            android:theme="@style/Theme.Stellar" />
+        <activity
             android:name=".activities.MainActivity"
             android:alwaysRetainTaskState="true"
             android:enableOnBackInvokedCallback="true"

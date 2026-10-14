@@ -27,5 +27,8 @@ pwsh -NoProfile -File .\tools\verify_public_source.ps1
 - Shizuku 兼容层：Apache-2.0。
 - GhostLock：Apache-2.0。
 - KSuRoot 动态载荷组件：Apache-2.0。
+- DirtyFrag 原生链：按 `LICENSE_REVIEW.md` 和 `NOTICE.md` 中的上游文件头及待核对说明归属，不声明为 MPL-2.0。
+
+DirtyFrag v1.15 同步自用户提供的 `DirtyFrag-master.zip`。公开源码中的 `manager/src/main/jni/dfroot/` 同时包含 DirtyFrag 原生代码、上游 LKM 文件和八个 KMI 内核模块构建产物；月虹修改的 bootstrap 只负责把执行交给 `yhroot_ksu_activate.sh`，因此页面不需要选择 SU 管理器。目录和二进制中的 `dfroot` 是 DirtyFrag 上游协议名称，不代表另一个上游来源。
 
 完整条款和上游归属见 `LICENSE`、`LICENSES/` 与 `NOTICE.md`。
