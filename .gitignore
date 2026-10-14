@@ -44,6 +44,7 @@ google-services.json
 
 /out
 /.kotlin
+/.gradle-release-home/
 /nul
 
 # Rust/native build output

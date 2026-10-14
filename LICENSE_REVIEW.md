@@ -20,9 +20,18 @@
 - 许可证：Apache License 2.0。
 - 本工程仅保留随 APK 发布的 arm64-v8a 内置提权载荷及其校验信息，不包含动态载荷构建算法；完整许可证文本为 `LICENSES/Apache-2.0.txt`。
 
+## DirtyFrag native chain
+
+- 上游：https://github.com/mitschud/DirtyFrag
+- 同步版本：用户提供的 `DirtyFrag-master.zip`，DirtyFrag `v1.15`，ZIP SHA-256 `266A8EB91EDA3A4D528F4E896C7BC14063A5A3585A20BDBE71AEE3EE35737C45`。
+- 集成位置：`manager/src/main/jni/dfroot/`；本工程额外修改了 bootstrap，使其调用 `assistant/src/main/assets/yhroot_ksu_activate.sh`。
+- DirtyFrag `lkm/dfroot.c` 声明 GPL；`include.inc` 保留 Odzhan 的 BSD 风格许可头。
+- 上游仓库根目录没有一份清晰、统一覆盖全部 DirtyFrag 文件的 LICENSE 文件。当前公开源码保留上述文件头，并将剩余文件标为“上游许可证待进一步核对”；DirtyFrag 代码不笼统声明为 MPL-2.0。
+
 ## 组合发行方式
 
 - 根目录 `LICENSE`：MPL-2.0。
 - Stellar 与月虹修改文件：MPL-2.0。
 - GhostLock、KSuRoot 与 Shizuku 文件：Apache-2.0。
+- DirtyFrag 原生链：按上游文件头和待核对的上游许可证说明单独归属；不并入 MPL-2.0。
 - `NOTICE.md` 列出上游来源和本工程修改范围。

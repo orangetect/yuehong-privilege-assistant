@@ -144,6 +144,8 @@
     <string name="mode_stellar_body">Uses manually selected bundled privilege files, local file import, wireless-debugging self-activation and the command console.</string>
     <string name="mode_stellar_open">Stellar</string>
     <string name="mode_ghostlock_kernel_required">6.x kernels only</string>
+    <string name="mode_dfroot_open">DirtyFrag</string>
+    <string name="mode_dfroot_kernel_required">Android 12+ only</string>
     <string name="mode_vivo_wired_open">vivo/iQOO wired privilege</string>
     <string name="wired_vivo_title">vivo/iQOO wired privilege</string>
     <string name="wired_vivo_start">Start wired privilege</string>
@@ -153,4 +155,21 @@
     <string name="wired_vivo_copy">Copy</string>
     <string name="wired_vivo_clear">Clear</string>
     <string name="wired_vivo_log_empty">Connect a vivo/iQOO target through OTG, then start the wired privilege flow.</string>
+    <string name="dfroot_title">DirtyFrag privilege</string>
+    <string name="back">Back</string>
+    <string name="dfroot_device_info_title">Device information</string>
+    <string name="dfroot_device_info">%1$s %2$s · Android kernel %3$s</string>
+    <string name="dfroot_action_title">Automatic root activation</string>
+    <string name="dfroot_action_body">DirtyFrag obtains root and then runs yhroot_ksu_activate.sh automatically.</string>
+    <string name="dfroot_status_ready">Ready</string>
+    <string name="dfroot_status_running">Running</string>
+    <string name="dfroot_status_armed">Reboot required</string>
+    <string name="dfroot_log_title">Process log</string>
+    <string name="dfroot_armed">DirtyFrag has already armed this boot. Reboot before trying again.</string>
+    <string name="dfroot_running">Running DirtyFrag…</string>
+    <string name="dfroot_run">Run DirtyFrag</string>
+    <string name="dfroot_finished">\nDirtyFrag flow finished. Check the log and verify the root result.</string>
+    <string name="dfroot_failed">\nDirtyFrag failed (exit %1$d).</string>
+    <string name="dfroot_clear_log">Clear log</string>
+    <string name="dfroot_log_empty">DirtyFrag output and yhroot_ksu_activate.sh logs will appear here.</string>
 </resources>

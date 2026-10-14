@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,7 +24,9 @@ import roro.stellar.yuehong.R
 @Composable
 internal fun ModeSelectionScreen(
     ghostLockKernelAvailable: Boolean,
+    dfRootPlatformAvailable: Boolean,
     onOpenGhostLock: () -> Unit,
+    onOpenDfRoot: () -> Unit,
     onOpenStellar: () -> Unit,
     onOpenVivoWired: () -> Unit,
 ) {
@@ -57,6 +59,25 @@ internal fun ModeSelectionScreen(
                     text = stringResource(R.string.mode_stellar_open),
                     fontWeight = FontWeight.SemiBold,
                 )
+            }
+            MotionButton(
+                modifier = Modifier.fillMaxWidth(),
+                enabled = dfRootPlatformAvailable,
+                onClick = onOpenDfRoot,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.mode_dfroot_open),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = stringResource(R.string.mode_dfroot_kernel_required),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
             }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),

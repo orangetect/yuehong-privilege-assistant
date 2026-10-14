@@ -2,7 +2,7 @@
 
 ## 月虹提权助手
 
-月虹提权助手是基于 Stellar、GhostLock 与 KSuRoot 进行集成和扩展的 Android 工程。月虹界面、启动验证、设备适配、协议客户端、OTA 自动解析、提权流程和 KernelSU 激活属于本工程的修改范围。
+月虹提权助手是基于 Stellar、GhostLock、KSuRoot 与 DirtyFrag 进行集成和扩展的 Android 工程。月虹界面、启动验证、设备适配、协议客户端、OTA 自动解析、提权流程和 KernelSU 激活属于本工程的修改范围。
 
 本工程的月虹集成与修改部分采用 Mozilla Public License 2.0。完整文本位于根目录 `LICENSE` 与 `LICENSES/MPL-2.0.txt`。
 
@@ -50,5 +50,15 @@ GhostLock C 核心、Rust 镜像/OTA 提取器、内核偏移表及许可证随�
 - License: Apache License 2.0
 
 本工程仅保留随 APK 发布的 arm64-v8a 内置提权载荷及其目录校验信息；不包含 KSuRoot 的动态构建算法、页面、Provider 或在线下载逻辑。完整许可证文本位于 `LICENSES/Apache-2.0.txt`。
+
+版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。
+
+## DirtyFrag native chain
+
+- Project: DirtyFrag
+- Source: https://github.com/mitschud/DirtyFrag
+- Synced source: user-provided `DirtyFrag-master.zip` (DirtyFrag v1.15, SHA-256 `266A8EB91EDA3A4D528F4E896C7BC14063A5A3585A20BDBE71AEE3EE35737C45`)
+- Included files: `manager/src/main/jni/dfroot/` contains the DirtyFrag native sources and eight upstream KMI module artifacts. The bootstrap integration is modified to invoke the YueHong `yhroot_ksu_activate.sh` asset.
+- License status: `lkm/dfroot.c` declares GPL and `include.inc` retains an Odzhan BSD-style license header. The upstream repository does not expose one clear root-level LICENSE covering every file, so the remaining DirtyFrag files are retained with an explicit “upstream license pending further verification” note in `LICENSE_REVIEW.md`. These files are not relicensed as MPL-2.0.
 
 版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。
