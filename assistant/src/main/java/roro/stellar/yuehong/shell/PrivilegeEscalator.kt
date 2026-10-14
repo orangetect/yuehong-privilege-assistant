@@ -530,8 +530,8 @@ class PrivilegeEscalator(
         const val LOCAL_PAYLOAD_CACHE_DIRECTORY = "local-payloads"
         const val LOCAL_PAYLOAD_PREFIX = "payload-"
         const val ROOT_CHECK_INNER_COMMAND = "id"
-        const val ROOT_CHECK_ATTEMPTS = 50
-        const val ROOT_CHECK_INTERVAL_MS = 100L
+        const val ROOT_CHECK_ATTEMPTS = 5
+        const val ROOT_CHECK_INTERVAL_MS = 300L
         val ROOT_SU_CANDIDATES = listOf(
             LOCAL_PAYLOAD_SU_PATH,
             "/apex/com.android.virt/bin/su",

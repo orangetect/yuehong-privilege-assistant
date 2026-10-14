@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import roro.stellar.Stellar
 import roro.stellar.StellarRemoteProcess
 import java.io.File
+import java.io.InputStreamReader
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -184,19 +185,94 @@ class StellarShellController : AutoCloseable {
             var remote: StellarRemoteProcess? = null
             var exitCode = -1
             val capturedOutput = mutableListOf<String>()
+            var mainOutputIndex: Int? = null
+            var currentOutputPublished = false
+            val currentLine = StringBuilder()
+            var currentLineActive = false
+            var escapeState = 0
+
+            fun publishCurrentLine() {
+                if (!currentLineActive) return
+                val text = currentLine.toString()
+                val replace = currentOutputPublished
+                if (replace && capturedOutput.isNotEmpty()) {
+                    capturedOutput[capturedOutput.lastIndex] = text
+                } else {
+                    capturedOutput += text
+                }
+                postToMain {
+                    if (replace && mainOutputIndex != null && mainOutputIndex!! < output.size) {
+                        output[mainOutputIndex!!] = OutputLine(text)
+                    } else {
+                        output += OutputLine(text)
+                        mainOutputIndex = output.lastIndex
+                    }
+                }
+                currentOutputPublished = true
+            }
+
+            fun commitCurrentLine() {
+                if (!currentLineActive && !currentOutputPublished) return
+                if (!currentLineActive) currentLineActive = true
+                publishCurrentLine()
+                currentLine.setLength(0)
+                currentLineActive = false
+                currentOutputPublished = false
+            }
+
+            fun consumeCharacter(character: Char) {
+                if (escapeState != 0) {
+                    if (escapeState == 1) {
+                        escapeState = if (character == '[') 2 else 0
+                    } else if (character in '@'..'~') {
+                        escapeState = 0
+                    }
+                    return
+                }
+                if (character == '\u001B') {
+                    escapeState = 1
+                    return
+                }
+                when (character) {
+                    '\r' -> {
+                        currentLine.setLength(0)
+                        currentLineActive = true
+                    }
+                    '\n' -> commitCurrentLine()
+                    '\b' -> if (currentLine.isNotEmpty()) currentLine.deleteCharAt(currentLine.lastIndex)
+                    else -> {
+                        currentLine.append(character)
+                        currentLineActive = true
+                    }
+                }
+            }
+
+            fun consumeProcessOutput() {
+                InputStreamReader(remote!!.inputStream, Charsets.UTF_8).use { reader ->
+                    val buffer = CharArray(4096)
+                    while (true) {
+                        val count = reader.read(buffer)
+                        if (count < 0) break
+                        for (index in 0 until count) consumeCharacter(buffer[index])
+                        publishCurrentLine()
+                    }
+                }
+                commitCurrentLine()
+            }
+
             try {
+                val commandPrefix = if (commandToRun.contains("yjazjc")) {
+                    "export YJAZJC_LIVE_PROGRESS=1; "
+                } else {
+                    ""
+                }
                 remote = Stellar.newProcess(
-                    arrayOf("sh", "-c", "$commandToRun 2>&1"),
+                    arrayOf("sh", "-c", "$commandPrefix$commandToRun 2>&1"),
                     null,
                     currentDirectory,
                 )
                 process = remote
-                remote.inputStream.bufferedReader().useLines { lines ->
-                    lines.forEach { line ->
-                        capturedOutput += line
-                        postToMain { output += OutputLine(line) }
-                    }
-                }
+                consumeProcessOutput()
                 exitCode = remote.waitFor()
                 if (exitCode != 0) {
                     postToMain { output += OutputLine("[exit code $exitCode]", isError = true) }
