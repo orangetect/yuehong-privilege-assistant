@@ -139,20 +139,40 @@ static int run_activation_script(const char *script_path, int output_fd)
            WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
 }
 
-static void write_activation_status(const char *mode, const char *script_path,
-                                    int rc, int started)
+static int open_activation_status(const char *mode, const char *script_path)
 {
-    FILE *f = fopen(ACTIVATION_STATUS_FILE, started ? "w" : "a");
-    if (!f) return;
-    if (started) {
-        const char *name = strrchr(script_path, '/');
-        fprintf(f, "mode=%s\nscript=%s\nstarted=1\n",
-                mode, name ? name + 1 : script_path);
-    } else {
-        fprintf(f, "exit=%d\n", rc);
+    int fd = open(ACTIVATION_STATUS_FILE,
+                  O_CREAT | O_WRONLY | O_TRUNC, 0644);
+    if (fd < 0) return -1;
+    /* The app reads this file after the root hand-off. Keep it app-readable
+       even when bootstrap created it as root. */
+    fchmod(fd, 0644);
+    const char *name = strrchr(script_path, '/');
+    char status[256];
+    int length = snprintf(status, sizeof(status),
+                          "mode=%s\nscript=%s\nstarted=1\n",
+                          mode, name ? name + 1 : script_path);
+    if (length < 0 || (size_t)length >= sizeof(status) ||
+        write(fd, status, (size_t)length) != length) {
+        close(fd);
+        return -1;
     }
-    fclose(f);
-    chmod(ACTIVATION_STATUS_FILE, 0644);
+    return fd;
+}
+
+static void finish_activation_status(int fd, int rc)
+{
+    if (fd < 0) return;
+    char status[32];
+    int length = snprintf(status, sizeof(status), "exit=%d\n", rc);
+    if (length > 0 && (size_t)length < sizeof(status)) {
+        /* Keep the descriptor opened before the SELinux transition. A later
+           fopen() can be denied even though this already-authorized fd is
+           still usable, which used to leave only started=1 in the trace. */
+        write(fd, status, (size_t)length);
+        fsync(fd);
+    }
+    close(fd);
 }
 
 static void stream_activation_output(void)
@@ -279,10 +299,10 @@ static int run_yhroot_activation(void)
     const char *script_log = apatch ? AP_SCRIPT_LOG : KSU_SCRIPT_LOG;
     unlink(ACTIVATION_OUTPUT_LOG);
     unlink(ACTIVATION_STATUS_FILE);
-    write_activation_status(mode, script_path, 0, 1);
+    int status_fd = open_activation_status(mode, script_path);
 
     if (access(script_path, X_OK) != 0) {
-        write_activation_status(mode, script_path, 127, 0);
+        finish_activation_status(status_fd, 127);
         return 127;
     }
 
@@ -305,20 +325,21 @@ static int run_yhroot_activation(void)
      * and continues to restore enforcing mode.
      */
     if (prepare_activation_helpers() < 0) {
-        write_activation_status(mode, script_path, -1, 0);
+        finish_activation_status(status_fd, -1);
         return -1;
     }
 
     int output_fd = open(ACTIVATION_OUTPUT_LOG,
-                         O_CREAT | O_WRONLY | O_TRUNC, 0600);
+                         O_CREAT | O_WRONLY | O_TRUNC, 0644);
     if (output_fd < 0) {
-        write_activation_status(mode, script_path, -1, 0);
+        finish_activation_status(status_fd, -1);
         remove_activation_helpers();
         return -1;
     }
+    fchmod(output_fd, 0644);
     int rc = run_activation_script(script_path, output_fd);
     close(output_fd);
-    write_activation_status(mode, script_path, rc, 0);
+    finish_activation_status(status_fd, rc);
     stream_activation_output();
     remove_activation_helpers();
     return rc;

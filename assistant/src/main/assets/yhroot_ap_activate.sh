@@ -742,9 +742,27 @@ echo '[*] Running APD soft-reboot to finish jailbreak activation'
 # APD's privileged profile. Supplying the built-in `su` superkey is the same
 # authorization used by the successful official root-shell flow and is needed
 # for APD to execute the framework stop/start pair.
-SOFT_REBOOT_OUTPUT=$(run_apd_fd --superkey su soft-reboot 2>&1)
-SOFT_REBOOT_RC=$?
-[ -z "$SOFT_REBOOT_OUTPUT" ] || echo "$SOFT_REBOOT_OUTPUT"
+SOFT_REBOOT_LOG="$APATCH_LOG_ROOT/yhroot_soft_reboot.log"
+rm -f "$SOFT_REBOOT_LOG" 2>/dev/null
+(
+  run_apd_fd --superkey su soft-reboot
+  SOFT_REBOOT_RC=$?
+  echo "[soft-reboot] exit=$SOFT_REBOOT_RC"
+  exit "$SOFT_REBOOT_RC"
+) >"$SOFT_REBOOT_LOG" 2>&1 &
+SOFT_REBOOT_PID=$!
+# Do not wait on APD's stdout pipe: its stop/start worker can keep that pipe
+# open while the framework restarts, which used to strand the activation shell
+# before it could queue the post-reboot stage. A short probe still catches an
+# immediate APD rejection; an alive process means the request was accepted.
+/system/bin/sleep 1
+if /system/bin/kill -0 "$SOFT_REBOOT_PID" 2>/dev/null; then
+  SOFT_REBOOT_RC=0
+else
+  wait "$SOFT_REBOOT_PID"
+  SOFT_REBOOT_RC=$?
+fi
+[ -f "$SOFT_REBOOT_LOG" ] && /system/bin/cat "$SOFT_REBOOT_LOG"
 if [ "$SOFT_REBOOT_RC" -ne 0 ]; then
   fail "APD soft-reboot failed with exit code $SOFT_REBOOT_RC" "$SOFT_REBOOT_RC"
 fi
