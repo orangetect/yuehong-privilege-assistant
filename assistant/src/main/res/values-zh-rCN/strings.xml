@@ -132,6 +132,15 @@
     <string name="channel_link_not_configured">QQ 频道链接尚未配置。</string>
     <string name="channel_open_failed">无法打开 QQ 频道。</string>
     <string name="mode_selection_title">选择提权模式</string>
+    <string name="jailbreak_mode_kernelsu">KernelSU及分支</string>
+    <string name="jailbreak_mode_apatch">APatch及分支</string>
+    <string name="escalation_activating_jailbreak">正在激活 %1$s 越狱模式…</string>
+    <string name="jailbreak_activation_prompt">已确认 Root 权限。是否立即激活 %1$s 越狱模式？</string>
+    <string name="activate_selected_jailbreak">激活</string>
+    <string name="jailbreak_activation_success_title">%1$s 越狱模式已激活</string>
+    <string name="jailbreak_activation_success_message">%1$s 激活脚本已成功执行。</string>
+    <string name="jailbreak_activation_failure_title">%1$s 激活失败</string>
+    <string name="jailbreak_activation_failure_message">设备提权已成功，但 %1$s 越狱模式未能完成激活。</string>
     <string name="mode_ghostlock_title">6 系内核 · GhostLock</string>
     <string name="mode_ghostlock_body">独立运行 GhostLock；优先复用当前内核 offsets.json，其次使用 APK 内置偏移，内置执行失败时自动解析完整 OTA 后再次执行。</string>
     <string name="mode_ghostlock_android_required">需要 Android 15 及以上</string>

@@ -660,6 +660,19 @@ static void write_root_script(void) {
       "  rm -f \"$HOME_DIR/.ghostlock_iomem.new\"\n"
       "  echo '[!] iomem cache: /proc/iomem read failed' >>\"$LOG\"\n"
       "fi\n"
+      "if [ -n \"${GHOSTLOCK_ACTIVATION_SCRIPT:-}\" ]; then\n"
+      "  if [ ! -f \"$GHOSTLOCK_ACTIVATION_SCRIPT\" ]; then\n"
+      "    echo '[!] selected activation script is missing' >>\"$LOG\"\n"
+      "    printf '%%s\\n' 1 >\"$HOME_DIR/.ghostlock_activation.status\"\n"
+      "    exit 1\n"
+      "  fi\n"
+      "  echo \"[*] selected activation script=$GHOSTLOCK_ACTIVATION_SCRIPT\" >>\"$LOG\"\n"
+      "  /system/bin/sh \"$GHOSTLOCK_ACTIVATION_SCRIPT\" >>\"$LOG\" 2>&1\n"
+      "  ACTIVATION_RC=$?\n"
+      "  printf '%%s\\n' \"$ACTIVATION_RC\" >\"$HOME_DIR/.ghostlock_activation.status\"\n"
+      "  echo \"[*] selected activation exit=$ACTIVATION_RC\" >>\"$LOG\"\n"
+      "  exit \"$ACTIVATION_RC\"\n"
+      "fi\n"
       "KVER=$(uname -r | cut -d. -f1-2)\n"
       "AVER=$(uname -r | grep -o 'android[0-9]*' | head -1)\n"
       "if [ -z \"$AVER\" ] || [ -z \"$KVER\" ]; then\n"
@@ -785,6 +798,28 @@ static int kernelsu_module_loaded(void) {
   }
   fclose(modules);
   return loaded;
+}
+
+static int wait_activation_result(void) {
+  char path[320];
+  snprintf(path, sizeof(path), "%s/.ghostlock_activation.status", g_home_dir);
+  for (int i = 0; i < 120; i++) {
+    FILE *status = fopen(path, "r");
+    if (status) {
+      char line[32] = "";
+      if (fgets(line, sizeof(line), status)) {
+        fclose(status);
+        char *end = NULL;
+        long code = strtol(line, &end, 10);
+        if (end != line && code >= 0 && code <= 255)
+          return (int)code;
+      } else {
+        fclose(status);
+      }
+    }
+    usleep(500000);
+  }
+  return -1;
 }
 
 /* Find a task through perf sample records. */
@@ -965,6 +1000,10 @@ static void child_main(struct child_pipes *p) {
   }
   /* the script appends to this path, a leftover reads as this run's result */
   unlink(g_ksu_log_path);
+  char activation_status_path[320];
+  snprintf(activation_status_path, sizeof(activation_status_path),
+           "%s/.ghostlock_activation.status", g_home_dir);
+  unlink(activation_status_path);
   pid_t worker = fork();
   if (worker == 0) {
     /* Detach into a brand-new session: the independent root shell owns the
@@ -1407,6 +1446,20 @@ int run_exploit(int argc, char **argv) {
     pr_warning("skipping late-load: child died during W3\n");
   }
   close(pipes.uid_r);
+
+  const char *activation_script = getenv("GHOSTLOCK_ACTIVATION_SCRIPT");
+  if (activation_script && activation_script[0]) {
+    int activation_code = wait_activation_result();
+    if (activation_code == 0) {
+      pr_success("selected jailbreak activation complete\n");
+      return 0;
+    }
+    if (activation_code < 0)
+      pr_error("selected jailbreak activation timed out\n");
+    else
+      pr_error("selected jailbreak activation failed (exit %d)\n", activation_code);
+    return 2;
+  }
 
   int kernelsu_ready = 0;
   for (int i = 0; i < 30 && !(kernelsu_ready = kernelsu_module_loaded()); i++) {
