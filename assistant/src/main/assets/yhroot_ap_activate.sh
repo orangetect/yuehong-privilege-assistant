@@ -17,10 +17,8 @@ APATCH_SU_PATH="$APATCH_ROOT/su_path"
 APATCH_SUCOMPAT="$APATCH_ROOT/sucompat"
 APATCH_FPD="$APATCH_BIN_ROOT/fpd"
 APATCH_KPATCH="$APATCH_BIN_ROOT/kpatch"
-APATCH_SU_ENTRY=/dev/.yhroot_ap_su
 APD_REAL="$APATCH_ROOT/.yhroot_apd"
 APATCH_SU_WORKER="$APATCH_ROOT/.yhroot_su_worker.sh"
-APATCH_SHELL_BRIDGE="$APATCH_ROOT/.yhroot_shell_bridge.sh"
 
 # The exploit shell does not always inherit Android's normal PATH. APD's
 # soft-reboot worker resolves `stop` and `start` by name, so keep the platform
@@ -142,26 +140,40 @@ stage_apd() {
   chmod 755 "$APD_REAL" 2>/dev/null || return 1
   restorecon "$APD_REAL" 2>/dev/null
 
-  # Keep official APD lifecycle commands native. Authorized su calls from
-  # apps use a clean root worker, because the bundled LKM leaves the app's
-  # seccomp filter attached and a fork reactivates it (SIGSYS in MT).
+  # Keep official APD lifecycle commands native. An already authorized APatch
+  # su call may use the clean root worker when its seccomp filter blocks fork;
+  # ordinary shell commands never enter that worker.
   rm -f "$APD" 2>/dev/null
   cat > "$APD" <<'APD_WRAPPER'
 #!/system/bin/sh
 REAL_APD=/data/adb/ap/.yhroot_apd
 IPC=/dev/.yhroot_ap_ipc
-SHELL_MODE=0
-if [ "$1" = --yh-shell ]; then
-  SHELL_MODE=1
-  shift
-fi
-if [ "$SHELL_MODE" -eq 0 ]; then
-case "${0##*/}" in magiskpolicy|resetprop) exec -a "${0##*/}" "$REAL_APD" "$@";; esac
-case "$1" in
-  --superkey|--superkey=*|module|post-fs-data|services|boot-completed|uid-listener|insmod|late-load|soft-reboot|resetprop|sepolicy|lua|kpm|config|--version) exec "$REAL_APD" "$@";;
-  -s) case "$3" in module|post-fs-data|services|boot-completed|uid-listener|insmod|late-load|soft-reboot|resetprop|sepolicy|lua|kpm|config) exec "$REAL_APD" "$@";; esac;;
+require_internal_root() {
+  [ "$(/system/bin/id -u 2>/dev/null)" = 0 ] || {
+    echo 'APatch internal command requires an authorized root session' >&2
+    exit 1
+  }
+}
+case "${0##*/}" in
+  magiskpolicy|resetprop)
+    require_internal_root
+    exec -a "${0##*/}" "$REAL_APD" "$@"
+    ;;
 esac
-fi
+case "$1" in
+  --superkey|--superkey=*|module|post-fs-data|services|boot-completed|uid-listener|insmod|late-load|soft-reboot|resetprop|sepolicy|lua|kpm|config|--version)
+    require_internal_root
+    exec "$REAL_APD" "$@"
+    ;;
+  -s)
+    case "$3" in
+      module|post-fs-data|services|boot-completed|uid-listener|insmod|late-load|soft-reboot|resetprop|sepolicy|lua|kpm|config)
+        require_internal_root
+        exec "$REAL_APD" "$@"
+        ;;
+    esac
+    ;;
+esac
 # Preserve ordinary APD execution for sessions that have no app seccomp filter.
 # Root Bash scripts must use APatch's su directly, rather than an app's shim.
 if [ "${BASH_ENV:-}" != /data/adb/ap/.yhroot_bash_env ]; then
@@ -178,7 +190,6 @@ done < /proc/self/status
 # Restore stdin before exec: executing inside the redirected loop would pass
 # /proc/self/status to the root shell instead of the caller's pipe or terminal.
 if [ "$SECCOMP_STATE" = 0 ]; then
-  [ "$SHELL_MODE" -eq 0 ] || exec /system/bin/.yhroot_ap_sh "$@"
   exec -a su "$REAL_APD" "$@"
 fi
 [ -f "$IPC/ready" ] || { echo 'APatch root worker is unavailable' >&2; exit 1; }
@@ -203,7 +214,6 @@ trap 'cleanup' EXIT
 trap 'exit 130' HUP INT TERM
 /system/bin/mkfifo -m 600 "$SESSION/status" "$SESSION/stdin" "$SESSION/stdout" "$SESSION/stderr" || exit 1
 echo $$ > "$SESSION/client"
-[ "$SHELL_MODE" -eq 0 ] || : > "$SESSION/shell"
 export -p > "$SESSION/env"
 : > "$SESSION/args"
 [ $# -eq 0 ] || /system/bin/printf '%s\0' "$@" > "$SESSION/args"
@@ -259,35 +269,6 @@ stage_su_worker() {
 #!/system/bin/sh
 IPC=/dev/.yhroot_ap_ipc
 SELF=/data/adb/ap/.yhroot_su_worker.sh
-if [ "$1" = su-entry ]; then
-  export PATH=/system/bin:/system/xbin:/system_ext/bin:/product/bin:/vendor/bin
-  ENTRY="$2"
-  toybox nsenter -t 1 -m -- /system/bin/sh -c \
-    '[ -x /system/bin/su ] && [ -x /system/bin/.yhroot_ap_sh ]' 2>/dev/null && exit 0
-
-  mkdir -p "$ENTRY" || exit 1
-  chmod 751 "$ENTRY" || exit 1
-  chown 0:2000 "$ENTRY" || exit 1
-  chcon u:object_r:system_file:s0 "$ENTRY" || exit 1
-  cp /system/bin/sh "$ENTRY/.yhroot_ap_sh" || exit 1
-  cp /data/adb/ap/.yhroot_shell_bridge.sh "$ENTRY/sh" || exit 1
-  chmod 755 "$ENTRY/.yhroot_ap_sh" "$ENTRY/sh" || exit 1
-  chown 0:2000 "$ENTRY/.yhroot_ap_sh" "$ENTRY/sh" || exit 1
-  # Android uses shell_exec for adbd -> shell and app shell transitions.
-  # A system_file label would leave ADB commands in the adbd domain.
-  chcon u:object_r:shell_exec:s0 "$ENTRY/.yhroot_ap_sh" "$ENTRY/sh" || exit 1
-  ln -sf /system/bin/sh "$ENTRY/su" || exit 1
-  chcon -h u:object_r:system_file:s0 "$ENTRY/su" || exit 1
-
-  # Use a tmpfs lower layer; /data is unsupported on some kernels.
-  # Init's namespace makes the entry available to the restarted framework.
-  # Both the overlay and backing directory disappear on a full reboot.
-  toybox nsenter -t 1 -m -- /system/bin/sh -c '
-    mount -t overlay overlay -o "ro,lowerdir=$1:/system/bin" /system/bin || exit
-    [ -x /system/bin/su ]
-  ' sh "$ENTRY"
-  exit $?
-fi
 if [ "$1" = start ]; then
   export PATH=/system/bin:/system/xbin:/system_ext/bin:/product/bin:/vendor/bin
   IPC=/dev/.yhroot_ap_ipc
@@ -328,19 +309,11 @@ if [ "$1" = session ]; then
   cd "/proc/$CLIENT/cwd" || exit 1
   set --
   while IFS= read -r -d '' ARG; do set -- "$@" "$ARG"; done < "$SESSION/args"
-  if [ -f "$SESSION/shell" ]; then
-    /system/bin/toybox nsenter -t "$CLIENT" -m -- /system/bin/sh -c '
-      . "$1"
-      shift
-      exec /system/bin/.yhroot_ap_sh "$@"
-    ' sh "$SESSION/env" "$@"
-  else
   /system/bin/toybox nsenter -t "$CLIENT" -m -- /system/bin/sh -c '
     . "$1"
     shift
     exec -a su /data/adb/ap/.yhroot_apd "$@"
   ' su "$SESSION/env" "$@"
-  fi
   exit $?
 fi
 if [ "$1" = boot-completed ]; then
@@ -383,28 +356,9 @@ while IFS= read -r SESSION <&4; do
   [ -d "$SESSION" ] && [ -p "$SESSION/status" ] || continue
   /system/bin/setsid /system/bin/sh "$SELF" session "$SESSION" < /dev/null > /dev/null 2>>"$IPC/worker.log" &
 done
-SU_WORKER
+  SU_WORKER
   [ "$?" -eq 0 ] || return 1
   chmod 700 "$APATCH_SU_WORKER" 2>/dev/null || return 1
-  cat > "$APATCH_SHELL_BRIDGE" <<'SHELL_BRIDGE'
-#!/system/bin/.yhroot_ap_sh
-# APatch's manager starts a direct shell through truncate rather than apd.
-# Only an already authorized root process with an app seccomp filter uses
-# the clean worker. System processes and unprivileged apps keep native sh.
-ROOT_UID= SECCOMP_STATE=
-while read -r FIELD VALUE REST; do
-  case "$FIELD" in
-    Uid:) ROOT_UID="$VALUE";;
-    Seccomp:) SECCOMP_STATE="$VALUE";;
-  esac
-done < /proc/self/status
-if [ "$ROOT_UID" = 0 ] && [ "$SECCOMP_STATE" = 2 ]; then
-  exec /system/bin/.yhroot_ap_sh /data/adb/apd --yh-shell "$@"
-fi
-exec /system/bin/.yhroot_ap_sh "$@"
-SHELL_BRIDGE
-  [ "$?" -eq 0 ] || return 1
-  chmod 755 "$APATCH_SHELL_BRIDGE" 2>/dev/null || return 1
   cat > "$APATCH_ROOT/.yhroot_bash_env" <<'BASH_ENV_SCRIPT'
 # Only root Bash sessions use this compatibility entry. Keep any existing
 # caller startup file, then use the real APatch su command with intact argv.
@@ -418,7 +372,7 @@ export -f su
 BASH_ENV_SCRIPT
   [ "$?" -eq 0 ] || return 1
   chmod 600 "$APATCH_ROOT/.yhroot_bash_env" 2>/dev/null || return 1
-  restorecon "$APATCH_SU_WORKER" "$APATCH_SHELL_BRIDGE" "$APATCH_ROOT/.yhroot_bash_env" 2>/dev/null
+  restorecon "$APATCH_SU_WORKER" "$APATCH_ROOT/.yhroot_bash_env" 2>/dev/null
   return 0
 }
 
@@ -563,11 +517,24 @@ run_kpatch_fd() {
   "/proc/self/fd/$KPATCH_FD" "$@"
 }
 
-ensure_su_entry() {
-  # Mount from APatch's domain; overlayfs stores the mounting credentials.
-  # The helper was staged before late-load, so no temporary heredoc is needed.
+check_native_su() {
+  # Keep /system/bin/su as APatch's native entry. Do not overlay it with a
+  # shell bridge: an ordinary shell must never obtain a Root Worker fallback.
   run_kpatch_fd su su -Z u:r:magisk:s0 \
-    -c "/system/bin/sh '$APATCH_SU_WORKER' su-entry '$APATCH_SU_ENTRY'"
+    -c '[ -x /system/bin/su ]'
+}
+
+remove_stale_su_overlay() {
+  # Older versions created an overlay at /system/bin and replaced su with a
+  # shell link. Remove only that known overlay from init's mount namespace;
+  # leave every unrelated system mount untouched.
+  run_kpatch_fd su su -Z u:r:magisk:s0 -c '
+    if toybox nsenter -t 1 -m -- /system/bin/toybox grep -F "/dev/.yhroot_ap_su" /proc/1/mountinfo >/dev/null 2>&1; then
+      toybox nsenter -t 1 -m -- /system/bin/toybox umount /system/bin || exit 1
+      toybox nsenter -t 1 -m -- /system/bin/toybox rm -rf /dev/.yhroot_ap_su || exit 1
+    fi
+  ' || return 1
+  rm -f "$APATCH_ROOT/.yhroot_shell_bridge.sh" 2>/dev/null || return 1
 }
 
 if [ "$(id -u 2>/dev/null)" != 0 ]; then
@@ -694,7 +661,7 @@ else
   fail 'KernelPatch userspace tool is unavailable; cannot reset the su entry path'
 fi
 
-ensure_su_entry || fail 'cannot prepare the ordinary APatch su entry'
+remove_stale_su_overlay || fail 'cannot remove the old shell su overlay'
 start_su_worker || fail 'cannot start the clean APatch root worker'
 
 # A working execve redirect alone is insufficient: Android's shell and root
@@ -702,20 +669,24 @@ start_su_worker || fail 'cannot start the clean APatch root worker'
 # out that probe hook for stability. Test the ordinary shell call from APatch's
 # own privileged context, so this result is not affected by the exploit domain.
 # Do not use `env su` for the probe: env bypasses the very path check that fails.
-SU_CHECK_OUTPUT=$(run_kpatch_fd su su -Z u:r:magisk:s0 \
-  -c '/system/bin/sh -c "/system/bin/su -c id"' 2>&1)
-SU_CHECK_RC=$?
-if [ "$SU_CHECK_RC" -ne 0 ]; then
-  [ -z "$SU_CHECK_OUTPUT" ] || echo "$SU_CHECK_OUTPUT"
-  fail 'KernelPatch loaded, but ordinary /system/bin/su is unavailable; jailbreak activation is incomplete'
-fi
-case "$SU_CHECK_OUTPUT" in
-  *'uid=0('*|*'uid=0 '*) ;;
-  *)
+if check_native_su; then
+  SU_CHECK_OUTPUT=$(run_kpatch_fd su su -Z u:r:magisk:s0 \
+    -c '/system/bin/sh -c "/system/bin/su -c id"' 2>&1)
+  SU_CHECK_RC=$?
+  if [ "$SU_CHECK_RC" -ne 0 ]; then
     [ -z "$SU_CHECK_OUTPUT" ] || echo "$SU_CHECK_OUTPUT"
-    fail 'ordinary APatch su did not return uid=0; jailbreak activation is incomplete'
-    ;;
-esac
+    fail 'APatch native /system/bin/su failed before the official lifecycle completed'
+  fi
+  case "$SU_CHECK_OUTPUT" in
+    *'uid=0('*|*'uid=0 '*) ;;
+    *)
+      [ -z "$SU_CHECK_OUTPUT" ] || echo "$SU_CHECK_OUTPUT"
+      fail 'APatch native su did not return uid=0'
+      ;;
+  esac
+else
+  echo '[*] APatch native /system/bin/su will be initialized by APD post-fs-data'
+fi
 
 # The official APatch application calls resetSuPath() during its process
 # startup. APD normally restarts that process through ActivityManager; a
@@ -742,36 +713,19 @@ echo '[*] Running APD soft-reboot to finish jailbreak activation'
 # APD's privileged profile. Supplying the built-in `su` superkey is the same
 # authorization used by the successful official root-shell flow and is needed
 # for APD to execute the framework stop/start pair.
-SOFT_REBOOT_LOG="$APATCH_LOG_ROOT/yhroot_soft_reboot.log"
-rm -f "$SOFT_REBOOT_LOG" 2>/dev/null
-(
-  run_apd_fd --superkey su soft-reboot
-  SOFT_REBOOT_RC=$?
-  echo "[soft-reboot] exit=$SOFT_REBOOT_RC"
-  exit "$SOFT_REBOOT_RC"
-) >"$SOFT_REBOOT_LOG" 2>&1 &
-SOFT_REBOOT_PID=$!
-# Do not wait on APD's stdout pipe: its stop/start worker can keep that pipe
-# open while the framework restarts, which used to strand the activation shell
-# before it could queue the post-reboot stage. A short probe still catches an
-# immediate APD rejection; an alive process means the request was accepted.
-/system/bin/sleep 1
-if /system/bin/kill -0 "$SOFT_REBOOT_PID" 2>/dev/null; then
-  SOFT_REBOOT_RC=0
-else
-  wait "$SOFT_REBOOT_PID"
-  SOFT_REBOOT_RC=$?
-fi
-[ -f "$SOFT_REBOOT_LOG" ] && /system/bin/cat "$SOFT_REBOOT_LOG"
+SOFT_REBOOT_OUTPUT=$(run_apd_fd --superkey su soft-reboot 2>&1)
+SOFT_REBOOT_RC=$?
+[ -z "$SOFT_REBOOT_OUTPUT" ] || echo "$SOFT_REBOOT_OUTPUT"
 if [ "$SOFT_REBOOT_RC" -ne 0 ]; then
   fail "APD soft-reboot failed with exit code $SOFT_REBOOT_RC" "$SOFT_REBOOT_RC"
 fi
 
 # APD's soft-reboot command daemonizes before it stops and starts Android. Its
 # return only confirms that the official worker was accepted; the worker then
-# runs post-fs-data and services, where APD applies su_path and sucompat. The
-# ordinary su entry was checked in APatch's privileged context before starting
-# the worker. /data/local/tmp was cleared before late-load and remains empty.
+# runs post-fs-data and services, where APD applies su_path and sucompat. If
+# native su was not available before the transition, that lifecycle owns its
+# first availability check. /data/local/tmp was cleared before late-load and
+# remains empty.
 run_kpatch_fd su su -Z u:r:magisk:s0 \
   -c 'echo boot-completed > /dev/.yhroot_ap_ipc/requests' || \
   fail 'cannot schedule the APatch boot-completed stage'
