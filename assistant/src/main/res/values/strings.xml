@@ -168,7 +168,7 @@
     <string name="dfroot_armed">DirtyFrag has already armed this boot. Reboot before trying again.</string>
     <string name="dfroot_running">Running DirtyFrag…</string>
     <string name="dfroot_run">Run DirtyFrag</string>
-    <string name="dfroot_finished">\nDirtyFrag flow finished. Check the log and verify the root result.</string>
+    <string name="dfroot_finished">\nDirtyFrag finished and the KernelSU activation script succeeded. Check the activation status in the KernelSU manager.</string>
     <string name="dfroot_failed">\nDirtyFrag failed (exit %1$d).</string>
     <string name="dfroot_clear_log">Clear log</string>
     <string name="dfroot_log_empty">DirtyFrag output and yhroot_ksu_activate.sh logs will appear here.</string>

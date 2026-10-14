@@ -106,19 +106,12 @@ internal fun DfRootScreen(onBack: () -> Unit) {
                         val reporter = DfRootReporter { message ->
                             scope.launch(Dispatchers.Main.immediate) { appendLog(message) }
                         }
+                        // The native result reports the activation script outcome;
+                        // this app does not need its own KernelSU root grant.
                         val outcome = runCatching { DfRootRunner.run(context, reporter) }
-                        val rootCheck = if (outcome.getOrNull() == 0) {
-                            runCatching { DfRootRunner.verifyRoot() }
-                                .getOrElse { it.toString() }
-                        } else {
-                            ""
-                        }
                         withContext(Dispatchers.Main) {
                             outcome.exceptionOrNull()?.let {
                                 appendLog("\n[DirtyFrag] ${it.message ?: it.javaClass.simpleName}\n")
-                            }
-                            if (rootCheck.isNotBlank()) {
-                                appendLog("\n--- su -c id ---\n$rootCheck\n")
                             }
                             appendLog(
                                 if (outcome.getOrNull() == 0) {

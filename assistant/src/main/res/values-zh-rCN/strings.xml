@@ -166,7 +166,7 @@
     <string name="dfroot_armed">本次开机已经布防 DirtyFrag，请重启后再试。</string>
     <string name="dfroot_running">正在运行 DirtyFrag…</string>
     <string name="dfroot_run">运行 DirtyFrag</string>
-    <string name="dfroot_finished">\nDirtyFrag 流程已结束，请查看日志并验证 Root 结果。</string>
+    <string name="dfroot_finished">\nDirtyFrag 流程已完成，KernelSU 激活脚本执行成功。请在 KernelSU 管理器中查看激活状态。</string>
     <string name="dfroot_failed">\nDirtyFrag 失败（退出码 %1$d）。</string>
     <string name="dfroot_clear_log">清空日志</string>
     <string name="dfroot_log_empty">DirtyFrag 输出和 yhroot_ksu_activate.sh 日志会显示在这里。</string>

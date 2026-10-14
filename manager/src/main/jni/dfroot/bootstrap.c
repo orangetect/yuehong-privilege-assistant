@@ -114,15 +114,8 @@ static int run_yhroot_activation(void)
     /* The script discovers ksud and its package after DirtyFrag gives it root. */
     unsetenv("YHROOT_KSUD");
     unsetenv("YHROOT_KSU_PACKAGE");
-    /*
-     * DirtyFrag's bootstrap is itself the root hand-off process. Reloading
-     * SELinux policy synchronously from this process can invalidate its old
-     * SID and kill the shell immediately after kernelsu.ko is loaded. The
-     * activation script therefore treats policy reload as an optional
-     * cleanup step in this mode; KernelSU module load remains the success
-     * condition. Stellar/GhostLock callers keep their existing policy flow.
-     */
-    setenv("YHROOT_DIRTYFRAG", "1", 1);
+    /* Run the existing script through policy reload, cleanup and enforcing. */
+    unsetenv("YHROOT_DIRTYFRAG");
     setenv("YHROOT_TMP_ROOT", TMP_ROOT, 1);
     setenv("YHROOT_LOG", SCRIPT_LOG, 1);
     setenv("YHROOT_PRESERVE_LOG", "1", 1);

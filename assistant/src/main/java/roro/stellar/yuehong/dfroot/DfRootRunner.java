@@ -119,23 +119,6 @@ public final class DfRootRunner {
         }
     }
 
-    public static String verifyRoot() throws IOException, InterruptedException {
-        Process process = new ProcessBuilder("/system/bin/sh", "-c", "su -c id")
-                .redirectErrorStream(true)
-                .start();
-        StringBuilder output = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                process.getInputStream(), StandardCharsets.UTF_8))) {
-            for (String line; (line = reader.readLine()) != null; ) {
-                if (output.length() > 0) output.append('\n');
-                output.append(line);
-            }
-        }
-        int rc = process.waitFor();
-        String result = output.toString().trim();
-        return "exit=" + rc + (result.isEmpty() ? "" : "\n" + result);
-    }
-
     private static void reportActivationLog(File work, DfRootReporter reporter) {
         File log = new File(work, LOG_FILE);
         if (!log.isFile()) return;
