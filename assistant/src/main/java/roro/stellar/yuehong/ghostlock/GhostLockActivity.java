@@ -1,8 +1,8 @@
 package roro.stellar.yuehong.ghostlock;
 
 import roro.stellar.yuehong.R;
-import roro.stellar.yuehong.shell.JailbreakActivationMode;
 import roro.stellar.yuehong.shell.GhostLockOtaApi;
+import roro.stellar.yuehong.shell.KernelSuManagerSelection;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -126,7 +126,6 @@ public class GhostLockActivity extends ComponentActivity {
     private View rootView;
     private int cpuPairIndex;
     private boolean parseWantsXbl;
-    private JailbreakActivationMode activationMode;
 
     /**
      * Returns the value when it looks like a real device name, else null.
@@ -445,11 +444,6 @@ public class GhostLockActivity extends ComponentActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        String requestedMode = getIntent().getStringExtra(JailbreakActivationMode.INTENT_EXTRA);
-        activationMode = JailbreakActivationMode.fromPreferenceValue(requestedMode);
-        if (activationMode == null) {
-            activationMode = JailbreakActivationMode.read(this);
-        }
         setContentView(R.layout.activity_ghostlock);
         setupSystemBars();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -1283,7 +1277,7 @@ public class GhostLockActivity extends ComponentActivity {
 
     private File prepareActivationScript(File workDir) throws IOException {
         File out = new File(workDir, ACTIVATION_SCRIPT);
-        try (InputStream in = getAssets().open(activationMode.getScriptAsset());
+        try (InputStream in = getAssets().open("yhroot_ksu_activate.sh");
              OutputStream output = new FileOutputStream(out, false)) {
             copyStream(in, output);
         }
@@ -1302,6 +1296,9 @@ public class GhostLockActivity extends ComponentActivity {
         pb.environment().put("GHOSTLOCK_HOME", workDir.getAbsolutePath());
         pb.environment().put("GHOSTLOCK_ACTIVATION_SCRIPT",
                 new File(workDir, ACTIVATION_SCRIPT).getAbsolutePath());
+        String managerPackage = KernelSuManagerSelection.INSTANCE.selectedPackage(this);
+        pb.environment().put("YHROOT_KSU_PACKAGE", managerPackage);
+        appendLog("selected KernelSU manager package: " + managerPackage);
         pb.environment().put("TMPDIR", workDir.getAbsolutePath());
         pb.environment().put("HOME", workDir.getAbsolutePath());
         pb.environment().put("YHROOT_CLEANUP_DELAY", "5");
@@ -1330,8 +1327,7 @@ public class GhostLockActivity extends ComponentActivity {
                 appendLog("warning: stale activation status could not be removed");
             }
             File activationScript = prepareActivationScript(workDir);
-            appendLog("selected " + activationMode.getPreferenceValue()
-                    + " activation script ready: " + activationScript.getName());
+            appendLog("selected KernelSU activation script ready: " + activationScript.getName());
             appendLog("native attempt " + attempt + "/" + MAX_NATIVE_ATTEMPTS);
             code = runBinary(binary, workDir);
             if (code == 0) {
@@ -1345,8 +1341,7 @@ public class GhostLockActivity extends ComponentActivity {
             Thread.sleep(NATIVE_RETRY_DELAY_MS);
         }
         if (code == EXIT_ACTIVATION_FAILED) {
-            appendLog(activationMode.getPreferenceValue()
-                    + " activation did not complete; result is not marked successful");
+            appendLog("KernelSU activation did not complete; result is not marked successful");
         }
         return code;
     }

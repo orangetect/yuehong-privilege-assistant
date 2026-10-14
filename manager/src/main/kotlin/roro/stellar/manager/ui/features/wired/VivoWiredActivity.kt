@@ -84,7 +84,6 @@ import roro.stellar.manager.ui.theme.StellarTheme
 import roro.stellar.yuehong.R
 import roro.stellar.yuehong.shell.BundledPayload
 import roro.stellar.yuehong.shell.BundledPayloadCatalog
-import roro.stellar.yuehong.shell.JailbreakActivationMode
 import roro.stellar.yuehong.ui.BundledPayloadDialog
 import roro.stellar.yuehong.ui.LocalPayloadCommandDialog
 import java.io.File
@@ -215,7 +214,6 @@ class VivoWiredActivity : ComponentActivity() {
 
 internal class VivoWiredViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application.applicationContext
-    private val activationMode = JailbreakActivationMode.read(app)
     private val usbManager = app.getSystemService(UsbManager::class.java)
     private val adbKey = AdbKey(PreferenceAdbKeyStore(StellarSettings.getPreferences()), "YueHong-Wired")
     private val _state = MutableStateFlow(VivoWiredProgress())
@@ -231,7 +229,7 @@ internal class VivoWiredViewModel(application: Application) : AndroidViewModel(a
     private var activeClient: UsbAdbClient? = null
     @Volatile
     private var consoleClient: UsbAdbClient? = null
-    private val escalator = VivoWiredEscalator(app, ::connectTarget, activationMode) { next ->
+    private val escalator = VivoWiredEscalator(app, ::connectTarget) { next ->
         if (!stopRequested) _state.value = next
     }
 

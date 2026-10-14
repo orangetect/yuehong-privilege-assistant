@@ -82,7 +82,6 @@ import roro.stellar.yuehong.shell.BundledPayload
 import roro.stellar.yuehong.shell.BundledPayloadCatalog
 import roro.stellar.yuehong.shell.OutputLine
 import roro.stellar.yuehong.shell.PrivilegeEscalator
-import roro.stellar.yuehong.shell.JailbreakActivationMode
 import roro.stellar.yuehong.shell.StellarShellController
 import roro.stellar.yuehong.shell.StellarStatus
 
@@ -105,9 +104,6 @@ fun LocalAdbScreen(
     var showPayloadPicker by remember { mutableStateOf(false) }
     var showEscalationResult by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    val activationMode = remember(context.applicationContext) {
-        JailbreakActivationMode.read(context)
-    }
     val bundledPayloads = remember(context) {
         runCatching { BundledPayloadCatalog.load(context) }.getOrDefault(emptyList())
     }
@@ -162,7 +158,6 @@ fun LocalAdbScreen(
             )
             EscalationCard(
                 escalator = escalator,
-                activationMode = activationMode,
                 enabled = !controller.isRunning && controller.status == StellarStatus.Granted,
                 onSelectBundledPayload = { showPayloadPicker = true },
                 onSelectLocalPayload = { localPayloadPicker.launch(arrayOf("*/*")) },
@@ -218,10 +213,9 @@ fun LocalAdbScreen(
     if (showEscalationResult) {
         EscalationResultDialog(
             result = escalator.result,
-            activationMode = activationMode,
             onActivateJailbreak = {
                 showEscalationResult = false
-                escalator.activateJailbreak(activationMode)
+                escalator.activateJailbreak()
             },
             onDismiss = {
                 showEscalationResult = false
@@ -305,7 +299,6 @@ private fun LocalAdbHeader(
 @Composable
 private fun EscalationCard(
     escalator: PrivilegeEscalator,
-    activationMode: JailbreakActivationMode,
     enabled: Boolean,
     onSelectBundledPayload: () -> Unit,
     onSelectLocalPayload: () -> Unit,
@@ -352,7 +345,7 @@ private fun EscalationCard(
                         label = "escalation-stage",
                     ) { stage ->
                         Text(
-                            text = escalationStageLabel(stage, activationMode),
+                            text = escalationStageLabel(stage),
                             style = MaterialTheme.typography.bodySmall,
                             color = if (failed) MaterialTheme.colorScheme.error else
                                 MaterialTheme.colorScheme.onSurfaceVariant,
@@ -793,7 +786,6 @@ private fun CommandComposer(
 @Composable
 private fun escalationStageLabel(
     stage: EscalationStage,
-    activationMode: JailbreakActivationMode,
 ): String = when (stage) {
     EscalationStage.Idle -> stringResource(R.string.escalation_idle)
     EscalationStage.CheckingPermission -> stringResource(R.string.escalation_checking_permission)
@@ -802,17 +794,13 @@ private fun escalationStageLabel(
     EscalationStage.InstallingResources -> stringResource(R.string.escalation_installing_resources)
     EscalationStage.ExecutingPayload -> stringResource(R.string.escalation_executing_payload)
     EscalationStage.CheckingRoot -> stringResource(R.string.escalation_checking_root)
-    EscalationStage.ActivatingJailbreak -> stringResource(
-        R.string.escalation_activating_jailbreak,
-        stringResource(activationMode.labelResource),
-    )
+    EscalationStage.ActivatingJailbreak -> stringResource(R.string.escalation_activating_jailbreak)
     EscalationStage.Done -> stringResource(R.string.escalation_done)
 }
 
 @Composable
 private fun EscalationResultDialog(
     result: EscalationResult,
-    activationMode: JailbreakActivationMode,
     onActivateJailbreak: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -823,12 +811,7 @@ private fun EscalationResultDialog(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.adb_escalated_to_root))
-                    Text(
-                        stringResource(
-                            R.string.jailbreak_activation_prompt,
-                            stringResource(activationMode.labelResource),
-                        ),
-                    )
+                    Text(stringResource(R.string.jailbreak_activation_prompt))
                 }
             },
             confirmButton = {
@@ -844,21 +827,11 @@ private fun EscalationResultDialog(
         is EscalationResult.JailbreakActivated -> AlertDialog(
             onDismissRequest = onDismiss,
             title = {
-                Text(
-                    stringResource(
-                        R.string.jailbreak_activation_success_title,
-                        stringResource(result.mode.labelResource),
-                    ),
-                )
+                Text(stringResource(R.string.jailbreak_activation_success_title))
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        stringResource(
-                            R.string.jailbreak_activation_success_message,
-                            stringResource(result.mode.labelResource),
-                        ),
-                    )
+                    Text(stringResource(R.string.jailbreak_activation_success_message))
                 }
             },
             confirmButton = {
@@ -869,21 +842,11 @@ private fun EscalationResultDialog(
         is EscalationResult.JailbreakActivationFailure -> AlertDialog(
             onDismissRequest = onDismiss,
             title = {
-                Text(
-                    stringResource(
-                        R.string.jailbreak_activation_failure_title,
-                        stringResource(result.mode.labelResource),
-                    ),
-                )
+                Text(stringResource(R.string.jailbreak_activation_failure_title))
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        stringResource(
-                            R.string.jailbreak_activation_failure_message,
-                            stringResource(result.mode.labelResource),
-                        ),
-                    )
+                    Text(stringResource(R.string.jailbreak_activation_failure_message))
                 }
             },
             confirmButton = {

@@ -33,8 +33,8 @@ enum class EscalationStage {
 sealed interface EscalationResult {
     data object Idle : EscalationResult
     data class RootConfirmed(val output: String, val suPath: String) : EscalationResult
-    data class JailbreakActivated(val mode: JailbreakActivationMode, val output: String) : EscalationResult
-    data class JailbreakActivationFailure(val mode: JailbreakActivationMode, val reason: String) : EscalationResult
+    data class JailbreakActivated(val output: String) : EscalationResult
+    data class JailbreakActivationFailure(val reason: String) : EscalationResult
     data class Failure(val stage: EscalationStage, val reason: String) : EscalationResult
 }
 
@@ -83,13 +83,13 @@ class PrivilegeEscalator(
         resetState()
     }
 
-    fun activateJailbreak(mode: JailbreakActivationMode) {
+    fun activateJailbreak() {
         mainHandler.post {
             val rootResult = result as? EscalationResult.RootConfirmed ?: return@post
             if (stage != EscalationStage.Done) return@post
             stage = EscalationStage.ActivatingJailbreak
             result = EscalationResult.Idle
-            executor.execute { runJailbreakActivation(rootResult.suPath, mode) }
+            executor.execute { runJailbreakActivation(rootResult.suPath) }
         }
     }
 
@@ -312,35 +312,37 @@ class PrivilegeEscalator(
         }
     }
 
-    private fun runJailbreakActivation(suPath: String, mode: JailbreakActivationMode) {
+    private fun runJailbreakActivation(suPath: String) {
         val outputs = mutableListOf<String>()
         var failure: Throwable? = null
         var cachedScript: File? = null
         try {
-            cachedScript = prepareActivationScript(mode)
-            log("installing ${mode.preferenceValue} jailbreak activation script")
-            val installation = shell.installActivationScript(cachedScript, mode.scriptDestination)
+            cachedScript = prepareActivationScript()
+            log("installing KernelSU jailbreak activation script")
+            val installation = shell.installActivationScript(cachedScript, KERNELSU_SCRIPT_DESTINATION)
             if (installation.output.isNotBlank()) outputs += installation.output.trim()
             if (installation.exitCode != 0) {
                 throw IOException("Activation script installation exited with code ${installation.exitCode}")
             }
 
-            log("running ${mode.preferenceValue} activation script through temporary su")
+            log("running KernelSU activation script through temporary su")
+            val managerPackage = KernelSuManagerSelection.selectedPackage(appContext)
+            log("selected KernelSU manager package: $managerPackage")
             val activationCommand = buildString {
-                append("/system/bin/sh '${mode.scriptDestination}'")
-                mode.scriptLogPath?.let { logPath ->
-                    append("; rc=\$?; cat '$logPath' 2>/dev/null; exit \$rc")
-                }
+                append("YHROOT_KSU_PACKAGE=")
+                append(shellQuote(managerPackage))
+                append(" /system/bin/sh '$KERNELSU_SCRIPT_DESTINATION'")
+                append("; rc=\$?; cat '$KERNELSU_SCRIPT_LOG' 2>/dev/null; exit \$rc")
             }
             val execution = executeSuCommand(
                 suPath,
                 activationCommand,
             )
-            log("${mode.preferenceValue} activation script exit code=${execution.exitCode}")
+            log("KernelSU activation script exit code=${execution.exitCode}")
             if (execution.output.isNotBlank()) {
                 val output = execution.output.trim()
                 outputs += output
-                log("${mode.preferenceValue} activation script output: $output")
+                log("KernelSU activation script output: $output")
             }
             if (execution.exitCode != 0) {
                 throw IOException("Activation script exited with code ${execution.exitCode}")
@@ -348,9 +350,9 @@ class PrivilegeEscalator(
         } catch (error: Throwable) {
             failure = error
         } finally {
-            runCatching { shell.removeActivationScript(mode.scriptDestination) }
+            runCatching { shell.removeActivationScript(KERNELSU_SCRIPT_DESTINATION) }
                 .onSuccess { cleanup ->
-                    log("${mode.preferenceValue} activation script cleanup exit code=${cleanup.exitCode}")
+                    log("KernelSU activation script cleanup exit code=${cleanup.exitCode}")
                     if (cleanup.output.isNotBlank()) log(cleanup.output.trim())
                 }
                 .onFailure { error ->
@@ -366,23 +368,23 @@ class PrivilegeEscalator(
         if (activationFailure != null) {
             val reason = activationFailure.message?.takeIf(String::isNotBlank)
                 ?: activationFailure.javaClass.simpleName
-            shell.appendOutput("[${mode.preferenceValue} 激活失败] $reason", isError = true)
+            shell.appendOutput("[KernelSU 激活失败] $reason", isError = true)
             mainHandler.post {
                 stage = EscalationStage.Done
-                result = EscalationResult.JailbreakActivationFailure(mode, reason)
+                result = EscalationResult.JailbreakActivationFailure(reason)
             }
         } else {
             mainHandler.post {
                 stage = EscalationStage.Done
-                result = EscalationResult.JailbreakActivated(mode, outputs.joinToString("\n"))
+                result = EscalationResult.JailbreakActivated(outputs.joinToString("\n"))
             }
         }
     }
 
-    private fun prepareActivationScript(mode: JailbreakActivationMode): File {
-        val target = File.createTempFile("yhroot-${mode.preferenceValue}-", ".sh", appContext.cacheDir)
+    private fun prepareActivationScript(): File {
+        val target = File.createTempFile("yhroot-kernelsu-", ".sh", appContext.cacheDir)
         return try {
-            appContext.assets.open(mode.scriptAsset).use { input ->
+            appContext.assets.open(KERNELSU_SCRIPT_ASSET).use { input ->
                 FileOutputStream(target).use { output ->
                     input.copyTo(output)
                     output.fd.sync()
@@ -411,6 +413,8 @@ class PrivilegeEscalator(
         if (path.split('/').any { it == "." || it == ".." }) return ""
         return path
     }
+
+    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
 
     // 通过 Stellar shell 执行命令，合并 stdout/stderr，并把输出和退出码作为同一个结果返回。
     @Suppress("DEPRECATION")
@@ -532,6 +536,9 @@ class PrivilegeEscalator(
         const val ROOT_CHECK_INNER_COMMAND = "id"
         const val ROOT_CHECK_ATTEMPTS = 5
         const val ROOT_CHECK_INTERVAL_MS = 300L
+        const val KERNELSU_SCRIPT_ASSET = "yhroot_ksu_activate.sh"
+        const val KERNELSU_SCRIPT_DESTINATION = "/data/local/tmp/yhroot_ksu_activate.sh"
+        const val KERNELSU_SCRIPT_LOG = "/data/local/tmp/yhroot_ksu_activate.log"
         val ROOT_SU_CANDIDATES = listOf(
             LOCAL_PAYLOAD_SU_PATH,
             "/apex/com.android.virt/bin/su",

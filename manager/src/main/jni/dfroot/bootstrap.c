@@ -1,5 +1,4 @@
 #include <dirent.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,29 +9,49 @@
 #include <unistd.h>
 
 #define BLKROSET   0x125d
+#define KSUD_STAGE "/data/user_de/0/roro.stellar.yuehong/ksud"
+#define KSUD       "/data/adb/ksud"
+#define PREFS_PATH "/data/user_de/0/roro.stellar.yuehong/shared_prefs/dfroot.xml"
+#define MODULES_DIR "/data/adb/modules"
 
-/*
- * DirtyFrag 1.15 hands control to this bootstrap after the kernel module is
- * loaded. YueHong deliberately does not import DirtyFrag's SU-manager picker:
- * the selected activation script performs the APatch or KernelSU hand-off
- * itself.  The kernel trampoline starts this process with an empty
- * environment, so the Java runner also writes a mode marker in DIRTYFRAG_DIR;
- * the environment remains the first choice for callers that can preserve it.
- */
-#define DIRTYFRAG_DIR   "/data/user_de/0/roro.stellar.yuehong/files/dfroot"
-#define MODE_ENV        "YHROOT_ACTIVATION_MODE"
-#define MODE_FILE       DIRTYFRAG_DIR "/.yhroot_activation_mode"
-#define KSU_SCRIPT_PATH DIRTYFRAG_DIR "/yhroot_ksu_activate.sh"
-#define AP_SCRIPT_PATH  DIRTYFRAG_DIR "/yhroot_ap_activate.sh"
-#define KSU_SCRIPT_LOG  DIRTYFRAG_DIR "/yhroot_ksu_activate.log"
-#define AP_SCRIPT_LOG   DIRTYFRAG_DIR "/yhroot_ap_activate.log"
-#define ACTIVATION_OUTPUT_LOG DIRTYFRAG_DIR "/.yhroot_activation_output.log"
-#define ACTIVATION_STATUS_FILE DIRTYFRAG_DIR "/.yhroot_activation_status"
-#define HELPER_DIR      DIRTYFRAG_DIR "/.yhroot-bin"
-#define TIMEOUT_HELPER  HELPER_DIR "/timeout"
-#define LOAD_POLICY_HELPER HELPER_DIR "/load_policy"
-#define SU_HELPER       HELPER_DIR "/su"
-#define TMP_ROOT        "/data/local/tmp/yhroot-dirtyfrag"
+static int pref_true(const char *buf, const char *key)
+{
+    char needle[64];
+    snprintf(needle, sizeof(needle), "name=\"%s\"", key);
+    char *p = strstr(buf, needle);
+    if (!p) return 0;
+    char *tag_end = strchr(p, '>');
+    char *v = strstr(p, "value=\"true\"");
+    return v && tag_end && v < tag_end;
+}
+
+static int read_prefs(char *su_manager, size_t su_manager_size, int *soft_reboot,
+                      int *disable_modules)
+{
+    int fd = open(PREFS_PATH, O_RDONLY);
+    if (fd < 0) return -1;
+
+    char buf[4096];
+    int n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0) return -1;
+    buf[n] = '\0';
+
+    char *p = strstr(buf, "name=\"su_manager\">");
+    if (!p) return -1;
+    p += strlen("name=\"su_manager\">");
+    char *end = strchr(p, '<');
+    if (!end) return -1;
+    size_t len = end - p;
+    if (len == 0 || len >= su_manager_size) return -1;
+    memcpy(su_manager, p, len);
+    su_manager[len] = '\0';
+
+    *soft_reboot = pref_true(buf, "soft_reboot");
+    *disable_modules = pref_true(buf, "disable_modules");
+
+    return 0;
+}
 
 static int adopt_zygote_env(void)
 {
@@ -72,16 +91,20 @@ static int should_ro(const char *name)
 static int set_partitions_ro(void)
 {
     DIR *dir = opendir("/dev/block/by-name");
-    if (!dir) return -1;
+    if (!dir)
+        return -1;
 
     struct dirent *ent;
     while ((ent = readdir(dir))) {
-        if (!should_ro(ent->d_name)) continue;
+        if (!should_ro(ent->d_name))
+            continue;
 
         char path[128];
         snprintf(path, sizeof(path), "/dev/block/by-name/%s", ent->d_name);
+
         int fd = open(path, O_RDONLY);
-        if (fd < 0) continue;
+        if (fd < 0)
+            continue;
 
         struct stat st;
         if (fstat(fd, &st) == 0 && S_ISBLK(st.st_mode)) {
@@ -95,289 +118,139 @@ static int set_partitions_ro(void)
     return 0;
 }
 
+static int late_load_running(void)
+{
+    DIR *d = opendir("/proc");
+    if (!d)
+        return 0;
+    struct dirent *e;
+    char path[64], buf[256];
+    int found = 0;
+    while ((e = readdir(d)) != NULL) {
+        char *end;
+        strtol(e->d_name, &end, 10);
+        if (*end) continue;
+        snprintf(path, sizeof(path), "/proc/%s/cmdline", e->d_name);
+        int fd = open(path, O_RDONLY | O_CLOEXEC);
+        if (fd < 0) continue;
+        int n = read(fd, buf, sizeof(buf) - 1);
+        close(fd);
+        if (n <= 0) continue;
+        buf[n] = '\0';
+        for (int i = 0; i < n; i++)
+            if (!buf[i]) buf[i] = ' ';
+        if (strstr(buf, "ksud") && strstr(buf, "late-load")) {
+            found = 1;
+            break;
+        }
+    }
+    closedir(d);
+    return found;
+}
+
 static int run_ctx(const char *ctx, char *const argv[])
 {
     pid_t pid = fork();
-    if (pid < 0) return -1;
+    if (pid < 0)
+        return -1;
     if (pid == 0) {
         if (ctx) {
             int fd = open("/proc/self/attr/exec", O_WRONLY);
-            if (fd >= 0) {
-                write(fd, ctx, strlen(ctx));
-                close(fd);
-            }
+            if (fd >= 0) { write(fd, ctx, strlen(ctx)); close(fd); }
         }
         execv(argv[0], argv);
         _exit(127);
     }
-
     int status;
-    if (waitpid(pid, &status, 0) < 0) return -1;
+    waitpid(pid, &status, 0);
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-}
-
-static int run_activation_script(const char *script_path, int output_fd)
-{
-    pid_t pid = fork();
-    if (pid < 0) return -1;
-    if (pid == 0) {
-        if (dup2(output_fd, STDOUT_FILENO) < 0 ||
-            dup2(output_fd, STDERR_FILENO) < 0) _exit(126);
-        close(output_fd);
-        execv("/system/bin/sh", (char *const[]){
-            "/system/bin/sh", (char *)script_path, NULL
-        });
-        fprintf(stderr, "[DirtyFrag] cannot start /system/bin/sh: %s\n", strerror(errno));
-        _exit(127);
-    }
-
-    int status;
-    while (waitpid(pid, &status, 0) < 0) {
-        if (errno != EINTR) return -1;
-    }
-    return WIFEXITED(status) ? WEXITSTATUS(status) :
-           WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
-}
-
-static int open_activation_status(const char *mode, const char *script_path)
-{
-    int fd = open(ACTIVATION_STATUS_FILE,
-                  O_CREAT | O_WRONLY | O_TRUNC, 0644);
-    if (fd < 0) return -1;
-    /* The app reads this file after the root hand-off. Keep it app-readable
-       even when bootstrap created it as root. */
-    fchmod(fd, 0644);
-    const char *name = strrchr(script_path, '/');
-    char status[256];
-    int length = snprintf(status, sizeof(status),
-                          "mode=%s\nscript=%s\nstarted=1\n",
-                          mode, name ? name + 1 : script_path);
-    if (length < 0 || (size_t)length >= sizeof(status) ||
-        write(fd, status, (size_t)length) != length) {
-        close(fd);
-        return -1;
-    }
-    return fd;
-}
-
-static void finish_activation_status(int fd, int rc)
-{
-    if (fd < 0) return;
-    char status[32];
-    int length = snprintf(status, sizeof(status), "exit=%d\n", rc);
-    if (length > 0 && (size_t)length < sizeof(status)) {
-        /* Keep the descriptor opened before the SELinux transition. A later
-           fopen() can be denied even though this already-authorized fd is
-           still usable, which used to leave only started=1 in the trace. */
-        write(fd, status, (size_t)length);
-        fsync(fd);
-    }
-    close(fd);
-}
-
-static void stream_activation_output(void)
-{
-    FILE *f = fopen(ACTIVATION_OUTPUT_LOG, "r");
-    if (!f) return;
-    char line[1024];
-    while (fgets(line, sizeof(line), f)) fputs(line, stdout);
-    fclose(f);
 }
 
 static void touch(const char *path)
 {
     int fd = open(path, O_CREAT | O_WRONLY, 0666);
-    if (fd >= 0) close(fd);
+    if (fd >= 0)
+        close(fd);
 }
 
-static int write_executable(const char *path, const char *contents)
-{
-    int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0700);
-    if (fd < 0) return -1;
-    size_t length = strlen(contents);
-    ssize_t written = write(fd, contents, length);
-    int ok = written == (ssize_t)length && fchmod(fd, 0700) == 0;
-    close(fd);
-    return ok ? 0 : -1;
-}
-
-static int prepare_activation_helpers(void)
-{
-    static const char timeout_script[] =
-        "#!/system/bin/sh\n"
-        "LIMIT=\"$1\"\n"
-        "shift\n"
-        "[ -n \"$LIMIT\" ] && [ $# -gt 0 ] || exit 2\n"
-        "COMMAND=\"$1\"\n"
-        "shift\n"
-        "if [ \"$COMMAND\" = load_policy ]; then\n"
-        "  /system/bin/load_policy \"$@\" &\n"
-        "else\n"
-        "  \"$COMMAND\" \"$@\" &\n"
-        "fi\n"
-        "PID=$!\n"
-        "( /system/bin/sleep \"$LIMIT\"; /system/bin/kill -9 \"$PID\" 2>/dev/null ) &\n"
-        "WATCH=$!\n"
-        "wait \"$PID\" 2>/dev/null\n"
-        "RC=$?\n"
-        "/system/bin/kill \"$WATCH\" 2>/dev/null\n"
-        "exit \"$RC\"\n";
-    static const char load_policy_script[] =
-        "#!/system/bin/sh\n"
-        "/system/bin/load_policy \"$@\" &\n"
-        "PID=$!\n"
-        "wait \"$PID\" 2>/dev/null\n"
-        "exit $?\n";
-    static const char su_script[] =
-        "#!/system/bin/sh\n"
-        "if [ \"$1\" = -c ]; then\n"
-        "  shift\n"
-        "  exec /system/bin/sh -c \"${1:-}\"\n"
-        "fi\n"
-        "exec /system/bin/su \"$@\"\n";
-    if (mkdir(HELPER_DIR, 0700) < 0 && errno != EEXIST) return -1;
-    if (write_executable(TIMEOUT_HELPER, timeout_script) < 0) return -1;
-    if (write_executable(LOAD_POLICY_HELPER, load_policy_script) < 0) return -1;
-    if (write_executable(SU_HELPER, su_script) < 0) return -1;
-
-    const char *old_path = getenv("PATH");
-    char path[512];
-    int n = snprintf(path, sizeof(path), "%s:%s", HELPER_DIR,
-                     old_path && *old_path ? old_path : "/system/bin");
-    if (n < 0 || (size_t)n >= sizeof(path)) return -1;
-    return setenv("PATH", path, 1);
-}
-
-static void remove_activation_helpers(void)
-{
-    unlink(TIMEOUT_HELPER);
-    unlink(LOAD_POLICY_HELPER);
-    unlink(SU_HELPER);
-    rmdir(HELPER_DIR);
-}
-
-static void clear_dirtyfrag_markers(void)
+static void clear_run_markers(void)
 {
     static const char *const markers[] = {
         "/dev/df", "/dev/dfm0", "/dev/dfm1", "/dev/dfm2", "/dev/dfm3",
-        "/dev/dfm5", "/dev/dfm6", "/dev/dfme2", "/dev/dfmw0", "/dev/dfmw1",
+        "/dev/dfm4", "/dev/dfm5", "/dev/dfm6", "/dev/dfme0", "/dev/dfme1",
+        "/dev/dfme2", "/dev/dfmw0", "/dev/dfmw1",
     };
     for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); i++)
         unlink(markers[i]);
 }
 
-static const char *read_mode_marker(void)
+/* Mark every installed module disabled before ksud runs. A broken module
+ * otherwise loads on the next boot and bootloops the device. */
+static int disable_modules(void)
 {
-    static char mode[16];
-    FILE *f = fopen(MODE_FILE, "r");
-    if (!f) return NULL;
-    if (!fgets(mode, sizeof(mode), f)) {
-        fclose(f);
-        return NULL;
-    }
-    fclose(f);
-    mode[strcspn(mode, "\r\n \t")] = '\0';
-    if (!strcmp(mode, "apatch") || !strcmp(mode, "kernelsu")) return mode;
-    return NULL;
-}
-
-static const char *activation_mode(void)
-{
-    const char *mode = getenv(MODE_ENV);
-    if (mode && (!strcmp(mode, "apatch") || !strcmp(mode, "kernelsu"))) {
-        return mode;
-    }
-    mode = read_mode_marker();
-    return mode ? mode : "kernelsu";
-}
-
-static int run_yhroot_activation(void)
-{
-    const char *mode = activation_mode();
-    const int apatch = !strcmp(mode, "apatch");
-    const char *script_path = apatch ? AP_SCRIPT_PATH : KSU_SCRIPT_PATH;
-    const char *script_log = apatch ? AP_SCRIPT_LOG : KSU_SCRIPT_LOG;
-    unlink(ACTIVATION_OUTPUT_LOG);
-    unlink(ACTIVATION_STATUS_FILE);
-    int status_fd = open_activation_status(mode, script_path);
-
-    if (access(script_path, X_OK) != 0) {
-        finish_activation_status(status_fd, 127);
-        return 127;
-    }
-
-    /* The selected script discovers the installed manager after DirtyFrag
-       gives it root. Keep these values explicit for scripts that use them. */
-    unsetenv("YHROOT_KSUD");
-    unsetenv("YHROOT_KSU_PACKAGE");
-    setenv(MODE_ENV, mode, 1);
-    unsetenv("YHROOT_DIRTYFRAG");
-    setenv("YHROOT_TMP_ROOT", TMP_ROOT, 1);
-    setenv("YHROOT_LOG", script_log, 1);
-    setenv("YHROOT_PRESERVE_LOG", "1", 1);
-    setenv("YHROOT_SKIP_TMP_CLEANUP", "0", 1);
-
-    /*
-     * load_policy can invalidate the SELinux SID of the shell that launched
-     * DirtyFrag. Keep the activation script unchanged, but route its timeout
-     * and cleanup `su` calls through private helpers. The load_policy child can
-     * be killed by the policy transition while the script records the result
-     * and continues to restore enforcing mode.
-     */
-    if (prepare_activation_helpers() < 0) {
-        finish_activation_status(status_fd, -1);
+    DIR *dir = opendir(MODULES_DIR);
+    if (!dir)
         return -1;
-    }
 
-    int output_fd = open(ACTIVATION_OUTPUT_LOG,
-                         O_CREAT | O_WRONLY | O_TRUNC, 0644);
-    if (output_fd < 0) {
-        finish_activation_status(status_fd, -1);
-        remove_activation_helpers();
-        return -1;
+    struct dirent *ent;
+    while ((ent = readdir(dir))) {
+        if (ent->d_name[0] == '.')
+            continue;
+        char path[256];
+        snprintf(path, sizeof(path), MODULES_DIR "/%s/disable", ent->d_name);
+        touch(path);
     }
-    fchmod(output_fd, 0644);
-    int rc = run_activation_script(script_path, output_fd);
-    close(output_fd);
-    finish_activation_status(status_fd, rc);
-    stream_activation_output();
-    remove_activation_helpers();
-    return rc;
+    closedir(dir);
+    return 0;
 }
 
 int main(void)
 {
-    /* Shell scripts require valid standard descriptors after the init-context
-       exec. The hook can inherit a closed descriptor from the zygote worker. */
-    for (int fd = 0; fd <= STDERR_FILENO; fd++) {
-        if (fcntl(fd, F_GETFD) >= 0) continue;
-        int null_fd = open("/dev/null", O_RDWR);
-        if (null_fd < 0) continue;
-        if (null_fd != fd) { dup2(null_fd, fd); close(null_fd); }
-    }
-    /* Marker sequence consumed by the YueHong runner. */
-    touch("/dev/dfm0");
     touch("/dev/dfm1");
-    if (adopt_zygote_env()) touch("/dev/dfmw0");
+    int result = 0;
+    char su_manager[256];
+    int soft_reboot, disable_mods;
+    if (read_prefs(su_manager, sizeof(su_manager), &soft_reboot, &disable_mods) != 0) {
+        touch("/dev/dfme0");
+        result = 1;
+        goto cleanup;
+    }
 
     touch("/dev/dfm2");
+    if (adopt_zygote_env())
+        touch("/dev/dfmw0");
+
     touch("/dev/dfm3");
-    if (set_partitions_ro()) touch("/dev/dfmw1");
+    if (set_partitions_ro())
+        touch("/dev/dfmw1");
+
+    if (disable_mods) {
+        touch("/dev/dfm4");
+        if (disable_modules()) {
+            touch("/dev/dfme1");
+            result = 1;
+            goto cleanup;
+        }
+    }
 
     touch("/dev/dfm5");
-    int rc = run_yhroot_activation();
-    if (rc == 0)
+    if (run_ctx(NULL, (char *[]){ KSUD_STAGE, "late-load", "--package-name", su_manager, NULL }) == 0) {
         touch("/dev/dfm6");
-    else
+        if (soft_reboot) {
+            while (late_load_running()) sleep(1);
+            run_ctx("u:r:ksu:s0", (char *[]){ KSUD, "soft-reboot", NULL });
+        }
+    } else {
         touch("/dev/dfme2");
+    }
 
-    /* DirtyFrag's module has a real module_exit after the hand-off. */
-    run_ctx(NULL, (char *const[]){ "/system/bin/rmmod", "dfroot", NULL });
-    /*
-     * The marker files are a per-run mutex and progress channel, not a root
-     * state store. Remove them after the module is gone so the next run can
-     * arm DirtyFrag again without requiring a reboot.
-     */
-    clear_dirtyfrag_markers();
-    return rc == 0 ? 0 : 1;
+    run_ctx(NULL, (char *[]){ "/system/bin/rmmod", "dfroot", NULL });
+
+cleanup:
+    /* The page-cache patch is reusable after the module is unloaded. */
+    /* Leave the terminal marker visible long enough for exp.c to consume it;
+     * the marker is removed immediately afterwards so a later run is clean. */
+    sleep(1);
+    clear_run_markers();
+    return result;
 }

@@ -8,7 +8,7 @@ import roro.stellar.manager.adb.UsbAdbClient
 import roro.stellar.yuehong.shell.DeviceProfile
 import roro.stellar.yuehong.shell.BundledPayload
 import roro.stellar.yuehong.shell.BundledPayloadCatalog
-import roro.stellar.yuehong.shell.JailbreakActivationMode
+import roro.stellar.yuehong.shell.KernelSuManagerSelection
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -48,11 +48,10 @@ internal data class VivoWiredLocalRequest(
 internal class VivoWiredEscalator(
     context: Context,
     private val connectTarget: suspend (waitingAfterReboot: Boolean) -> UsbAdbClient,
-    private val activationMode: JailbreakActivationMode,
     private val publish: (VivoWiredProgress) -> Unit,
 ) : AutoCloseable {
     private val appContext = context.applicationContext
-    private val activationLabel = appContext.getString(activationMode.labelResource)
+    private val activationLabel = "KernelSU"
     private var state = VivoWiredProgress()
 
     suspend fun run(
@@ -152,21 +151,24 @@ internal class VivoWiredEscalator(
 
             update(VivoWiredStage.ActivatingJailbreak, "正在传输 $activationLabel 激活脚本")
             val activationScript = copyActivationScript()
-            val activationScriptDestination = activationMode.scriptDestination
             try {
                 client = pushFileWithRetry(
                     initialClient = client,
                     source = activationScript,
-                    destination = activationScriptDestination,
+                    destination = ACTIVATION_SCRIPT_DESTINATION,
                     mode = ACTIVATION_SCRIPT_MODE,
                 )
             } finally {
                 activationScript.delete()
             }
             update(VivoWiredStage.ActivatingJailbreak, "正在激活 $activationLabel")
+            val managerPackage = KernelSuManagerSelection.selectedPackage(appContext)
+            log("已选择 KernelSU 管理器包名：$managerPackage")
+            val activationCommand = "YHROOT_KSU_PACKAGE=${shellQuote(managerPackage)} " +
+                "/system/bin/sh ${shellQuote(ACTIVATION_SCRIPT_DESTINATION)}"
             val activation = client.shell(
-                "chmod 0700 '$activationScriptDestination' && " +
-                    "$suPath -c 'sh $activationScriptDestination'",
+                "chmod 0700 ${shellQuote(ACTIVATION_SCRIPT_DESTINATION)} && " +
+                    "${shellQuote(suPath)} -c ${shellQuote(activationCommand)}",
             )
             if (activation.output.isNotBlank()) log(activation.output)
             if (activation.exitCode != 0) {
@@ -414,9 +416,9 @@ internal class VivoWiredEscalator(
     }
 
     private fun copyActivationScript(): File {
-        val target = File.createTempFile("yhroot-${activationMode.preferenceValue}-", ".sh", appContext.cacheDir)
+        val target = File.createTempFile("yhroot-kernelsu-", ".sh", appContext.cacheDir)
         return try {
-            appContext.assets.open(activationMode.scriptAsset).use { input ->
+            appContext.assets.open(ACTIVATION_SCRIPT_ASSET).use { input ->
                 FileOutputStream(target).use { output ->
                     input.copyTo(output)
                     output.fd.sync()
@@ -515,6 +517,8 @@ internal class VivoWiredEscalator(
 
     override fun close() = Unit
 
+    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
+
     private companion object {
         val GETPROP_LINE = Regex("^\\[([^]]+)]\\s*:\\s*\\[(.*)]$")
         val VIVO_IDENTITIES = listOf("vivo", "iqoo", "bbk")
@@ -533,6 +537,8 @@ internal class VivoWiredEscalator(
         const val POST_BOOT_COMMAND_DELAY_MS = 5_000L
         const val REMOTE_PAYLOAD = "/data/local/tmp/preload.so"
         const val LOCAL_PAYLOAD_SU_PATH = "/data/local/tmp/su"
+        const val ACTIVATION_SCRIPT_ASSET = "yhroot_ksu_activate.sh"
+        const val ACTIVATION_SCRIPT_DESTINATION = "/data/local/tmp/yhroot_ksu_activate.sh"
         const val ACTIVATION_SCRIPT_MODE = 0x81C0
     }
 }

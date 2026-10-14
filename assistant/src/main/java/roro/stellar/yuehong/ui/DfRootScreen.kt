@@ -47,11 +47,9 @@ import kotlinx.coroutines.withContext
 import roro.stellar.yuehong.R
 import roro.stellar.yuehong.dfroot.DfRootReporter
 import roro.stellar.yuehong.dfroot.DfRootRunner
-import roro.stellar.yuehong.shell.JailbreakActivationMode
 
 @Composable
 internal fun DfRootScreen(
-    activationMode: JailbreakActivationMode,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -99,37 +97,37 @@ internal fun DfRootScreen(
 
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !running,
                 onClick = {
-                    running = true
-                    log = ""
-                    scope.launch(Dispatchers.IO) {
-                        val reporter = DfRootReporter { message ->
-                            scope.launch(Dispatchers.Main.immediate) { appendLog(message) }
-                        }
-                        // The native result reports the activation script outcome;
-                        // this app does not need its own KernelSU root grant.
-                        val outcome = runCatching {
-                            DfRootRunner.run(context, activationMode, reporter)
-                        }
-                        withContext(Dispatchers.Main) {
-                            outcome.exceptionOrNull()?.let {
-                                appendLog("\n[DirtyFrag] ${it.message ?: it.javaClass.simpleName}\n")
+                    // Keep the control reusable and visually enabled. A second
+                    // tap during an active run is ignored until the first run
+                    // has released the native exploit resources.
+                    if (!running) {
+                        running = true
+                        log = ""
+                        scope.launch(Dispatchers.IO) {
+                            val reporter = DfRootReporter { message ->
+                                scope.launch(Dispatchers.Main.immediate) { appendLog(message) }
                             }
-                            appendLog(
-                                if (outcome.getOrNull() == 0) {
-                                    context.getString(
-                                        R.string.dfroot_finished,
-                                        context.getString(activationMode.labelResource),
-                                    )
-                                } else {
-                                    context.getString(
-                                        R.string.dfroot_failed,
-                                        outcome.getOrNull() ?: -1,
-                                    )
-                                },
-                            )
-                            running = false
+                            // The native result reports the upstream KernelSU late-load outcome.
+                            val outcome = runCatching {
+                                DfRootRunner.run(context, reporter)
+                            }
+                            withContext(Dispatchers.Main) {
+                                outcome.exceptionOrNull()?.let {
+                                    appendLog("\n[DirtyFrag] ${it.message ?: it.javaClass.simpleName}\n")
+                                }
+                                appendLog(
+                                    if (outcome.getOrNull() == 0) {
+                                        context.getString(R.string.dfroot_finished)
+                                    } else {
+                                        context.getString(
+                                            R.string.dfroot_failed,
+                                            outcome.getOrNull() ?: -1,
+                                        )
+                                    },
+                                )
+                                running = false
+                            }
                         }
                     }
                 },

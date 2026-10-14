@@ -78,9 +78,9 @@ libcxx_start:
     //       SIGCHLD, 0, NULL, NULL, &ctid)
     mov     x8, SYS_clone
     add     x4, sp, 8           // ctid
-    mov     x3, xzr             // newtls
-    mov     x2, xzr             // ptid
-    mov     x1, xzr             // stack
+    mov     x3, xzr              // newtls
+    mov     x2, xzr              // ptid
+    mov     x1, xzr              // stack
     movl    x0, (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | SIGCHLD)
     svc     0
     str     w0, [sp, 8]         // save id

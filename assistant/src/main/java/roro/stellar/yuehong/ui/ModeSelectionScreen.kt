@@ -1,50 +1,66 @@
 package roro.stellar.yuehong.ui
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import roro.stellar.yuehong.R
-import roro.stellar.yuehong.shell.JailbreakActivationMode
+import roro.stellar.yuehong.shell.KernelSuManagerInfo
+import roro.stellar.yuehong.shell.KernelSuManagerSelection
 
 @Composable
 internal fun ModeSelectionScreen(
     ghostLockKernelAvailable: Boolean,
     dfRootPlatformAvailable: Boolean,
-    activationMode: JailbreakActivationMode,
-    onActivationModeChange: (JailbreakActivationMode) -> Unit,
     onOpenGhostLock: () -> Unit,
     onOpenDfRoot: () -> Unit,
     onOpenStellar: () -> Unit,
     onOpenVivoWired: () -> Unit,
 ) {
+    val context = LocalContext.current
+    var selectedPackage by remember(context) {
+        mutableStateOf(KernelSuManagerSelection.selectedPackage(context))
+    }
+    var showManagerPicker by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -66,6 +82,24 @@ internal fun ModeSelectionScreen(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
+            MotionButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { showManagerPicker = true },
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.kernel_su_manager_select),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = selectedPackage,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = onOpenStellar,
@@ -122,65 +156,144 @@ internal fun ModeSelectionScreen(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .selectableGroup(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                JailbreakActivationMode.entries.forEach { mode ->
-                    JailbreakModeOption(
-                        modifier = Modifier.weight(1f),
-                        mode = mode,
-                        selected = activationMode == mode,
-                        onClick = { onActivationModeChange(mode) },
-                    )
-                }
-            }
         }
+    }
+
+    if (showManagerPicker) {
+        KernelSuManagerPickerDialog(
+            selectedPackage = selectedPackage,
+            onDismiss = { showManagerPicker = false },
+            onSelected = { packageName ->
+                selectedPackage = KernelSuManagerSelection.saveSelectedPackage(context, packageName)
+                showManagerPicker = false
+            },
+        )
     }
 }
 
 @Composable
-private fun JailbreakModeOption(
-    modifier: Modifier = Modifier,
-    mode: JailbreakActivationMode,
+private fun KernelSuManagerPickerDialog(
+    selectedPackage: String,
+    onDismiss: () -> Unit,
+    onSelected: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    var managers by remember { mutableStateOf<List<KernelSuManagerInfo>?>(null) }
+
+    LaunchedEffect(Unit) {
+        managers = withContext(Dispatchers.IO) {
+            KernelSuManagerSelection.scan(context)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.kernel_su_manager_dialog_title)) },
+        text = {
+            when (val list = managers) {
+                null -> Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                    Text(stringResource(R.string.kernel_su_manager_scanning))
+                }
+
+                else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.kernel_su_manager_current, selectedPackage),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (list.isEmpty()) {
+                        Text(stringResource(R.string.kernel_su_manager_empty))
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 360.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            items(list, key = { it.packageName }) { manager ->
+                                KernelSuManagerRow(
+                                    manager = manager,
+                                    selected = manager.packageName == selectedPackage,
+                                    onClick = { onSelected(manager.packageName) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSelected(KernelSuManagerSelection.DEFAULT_PACKAGE) }) {
+                Text(stringResource(R.string.kernel_su_manager_use_default))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun KernelSuManagerRow(
+    manager: KernelSuManagerInfo,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(12.dp)
-    val colors = MaterialTheme.colorScheme
-    val containerColor = if (selected) colors.primaryContainer else colors.surfaceContainerLow
-    val contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface
-
+    val bitmap = remember(manager.packageName) { drawableToBitmap(manager.icon) }
     Row(
-        modifier = modifier
-            .height(42.dp)
-            .clip(shape)
-            .background(containerColor)
-            .border(1.dp, if (selected) colors.primary else colors.outlineVariant, shape)
-            .selectable(
-                selected = selected,
-                role = Role.RadioButton,
-                onClick = onClick,
-            )
-            .padding(horizontal = 16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (selected) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = null,
-                tint = colors.primary,
-                modifier = Modifier.size(14.dp),
+        if (bitmap != null) {
+            androidx.compose.foundation.Image(
+                painter = BitmapPainter(bitmap.asImageBitmap()),
+                contentDescription = manager.label,
+                modifier = Modifier.size(40.dp),
+            )
+        } else {
+            Box(modifier = Modifier.size(40.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = manager.label,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            )
+            Text(
+                text = manager.packageName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Text(
-            text = stringResource(mode.labelResource),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            color = contentColor,
-        )
+        if (selected) {
+            Text(
+                text = "✓",
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
+}
+
+private fun drawableToBitmap(drawable: Drawable): Bitmap? {
+    if (drawable is BitmapDrawable) return drawable.bitmap
+    val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 48
+    val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 48
+    return runCatching {
+        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
+        }
+    }.getOrNull()
 }

@@ -18,7 +18,6 @@
 #include "aes256.h"
 
 static const char kCrashDump[] = "/apex/com.android.runtime/bin/crash_dump64";
-#define DIRTYFRAG_MODE_FILE "/data/user_de/0/roro.stellar.yuehong/files/dfroot/.yhroot_activation_mode"
 static char    *libcxx_ko_target;
 
 static int      g_encap_port;
@@ -38,30 +37,9 @@ struct PatchRestore {
 
 static struct PatchRestore g_libcxx_r;
 
-static const char *dirtyfrag_activation_mode(void)
-{
-    static char mode[16];
-    const char *env = getenv("YHROOT_ACTIVATION_MODE");
-    if (env && (!strcmp(env, "apatch") || !strcmp(env, "kernelsu"))) {
-        return env;
-    }
-
-    FILE *f = fopen(DIRTYFRAG_MODE_FILE, "r");
-    if (!f) return "kernelsu";
-    if (!fgets(mode, sizeof(mode), f)) {
-        fclose(f);
-        return "kernelsu";
-    }
-    fclose(f);
-    mode[strcspn(mode, "\r\n \t")] = '\0';
-    if (!strcmp(mode, "apatch") || !strcmp(mode, "kernelsu")) return mode;
-    return "kernelsu";
-}
-
 static void wait_for_bootstrap_cleanup(void)
 {
-    /* The bootstrap owns the marker cleanup. Do not let a second UI click
-       race its rmmod/unlink tail after the native exploit has reported. */
+    /* bootstrap removes the per-run markers after unloading dfroot. */
     for (int i = 0; i < 500; i++) {
         if (access("/dev/df", F_OK) != 0) return;
         usleep(10000);
@@ -567,40 +545,28 @@ static int exploit(void) {
     printf("\n=== init  ===\n");
     createOrphanProcess();
 
-    const char *activation_mode = dirtyfrag_activation_mode();
-    const char *activation_label = !strcmp(activation_mode, "apatch") ? "APatch" : "KernelSU";
-    char activation_start_msg[96];
-    char activation_success_msg[96];
-    char activation_error_msg[96];
-    snprintf(activation_start_msg, sizeof(activation_start_msg),
-             "bootstrap: running %s activation script", activation_label);
-    snprintf(activation_success_msg, sizeof(activation_success_msg),
-             "%s activation: SUCCESS", activation_label);
-    snprintf(activation_error_msg, sizeof(activation_error_msg),
-             "%s activation: ERROR - script failed", activation_label);
-
-    const struct {
+    static const struct {
         const char *path;
         const char *msg;
         int         rc;
     } markers[] = {
         { "/dev/df",    "libc++: loading custom module",                    -1 },
         { "/dev/dfm0",  "kernel module: launching bootstrap",               -1 },
-        { "/dev/dfm1",  "bootstrap: preparing activation script",            -1 },
+        { "/dev/dfm1",  "bootstrap: loading app preferences file",          -1 },
+        { "/dev/dfme0", "bootstrap: ERROR - reading prefs failed",           1 },
         { "/dev/dfm2",  "bootstrap: cloning zygote env",                    -1 },
         { "/dev/dfmw0", "bootstrap: WARNING - clone zygote env failed",     -1 },
         { "/dev/dfm3",  "bootstrap: setting partitions ro",                 -1 },
         { "/dev/dfmw1", "bootstrap: WARNING - set partitions ro failed",    -1 },
-        { "/dev/dfm5",  activation_start_msg,                                  -1 },
-        { "/dev/dfm6",  activation_success_msg,                                 0 },
-        { "/dev/dfme2", activation_error_msg,                                   1 },
+        { "/dev/dfm4",  "bootstrap: disabling ksu modules",                 -1 },
+        { "/dev/dfme1", "bootstrap: ERROR - disable modules failed",         1 },
+        { "/dev/dfm5",  "bootstrap: starting SU daemon",                    -1 },
+        { "/dev/dfm6",  "ksud start: SUCCESS",                               0 },
+        { "/dev/dfme2", "ksud start: ERROR - ksud nonzero exit",             1 },
     };
     int seen[sizeof(markers)/sizeof(markers[0])] = {0};
 
-    /* yhroot_ksu_activate.sh may retry SELinux policy cleanup for up to
-       roughly 100 seconds. Keep the original exploit markers authoritative,
-       but do not report a timeout while the bootstrap is still running. */
-    for (int elapsed = 0; elapsed < 120000; elapsed += 10) {
+    for (int elapsed = 0; elapsed < 10000; elapsed += 10) {
         usleep(10000);
         for (size_t j = 0; j < sizeof(markers)/sizeof(markers[0]); j++) {
             if (!seen[j] && access(markers[j].path, F_OK) == 0) {

@@ -30,11 +30,11 @@ import roro.stellar.yuehong.ghostlock.GhostLockActivity
 import roro.stellar.yuehong.shell.HttpStartupVerificationApi
 import roro.stellar.yuehong.shell.StartupVerification
 import roro.stellar.yuehong.shell.StartupVerificationResult
-import roro.stellar.yuehong.shell.JailbreakActivationMode
 
 private enum class AppPage {
     Announcement,
     ChannelVerification,
+    NecessaryPermissions,
     ModeSelection,
 }
 
@@ -48,9 +48,6 @@ fun StellarAssistantApp() {
         }
         var page by rememberSaveable { mutableStateOf(AppPage.Announcement) }
         var startupRefreshGeneration by rememberSaveable { mutableIntStateOf(0) }
-        var activationMode by rememberSaveable {
-            mutableStateOf(JailbreakActivationMode.read(context))
-        }
         val kernelRelease = remember {
             runCatching { Os.uname().release }.getOrNull().orEmpty().ifBlank {
                 System.getProperty("os.version", "unknown")
@@ -65,17 +62,13 @@ fun StellarAssistantApp() {
 
         fun openGhostLockMode() {
             val activity = context as? Activity ?: return
-            activity.startActivity(Intent(context, GhostLockActivity::class.java).apply {
-                putExtra(JailbreakActivationMode.INTENT_EXTRA, activationMode.preferenceValue)
-            })
+            activity.startActivity(Intent(context, GhostLockActivity::class.java))
         }
 
         fun openDfRootMode() {
             if (!dfRootPlatformAvailable) return
             val activity = context as? Activity ?: return
-            activity.startActivity(Intent(context, DfRootActivity::class.java).apply {
-                putExtra(JailbreakActivationMode.INTENT_EXTRA, activationMode.preferenceValue)
-            })
+            activity.startActivity(Intent(context, DfRootActivity::class.java))
         }
 
         fun openStellarMode() {
@@ -123,8 +116,13 @@ fun StellarAssistantApp() {
                     api = startupVerificationApi,
                     refreshGeneration = startupRefreshGeneration,
                     onContinue = { verification ->
-                        if (verification.authorized) page = AppPage.ModeSelection
-                        else page = AppPage.ChannelVerification
+                        if (!verification.authorized) {
+                            page = AppPage.ChannelVerification
+                        } else if (NecessaryPermissions.allGranted(context)) {
+                            page = AppPage.ModeSelection
+                        } else {
+                            page = AppPage.NecessaryPermissions
+                        }
                     },
                     onRetry = { startupRefreshGeneration++ },
                     onExit = { (context as? Activity)?.moveTaskToBack(true) },
@@ -132,7 +130,13 @@ fun StellarAssistantApp() {
 
                 AppPage.ChannelVerification -> ChannelVerificationScreen(
                     api = startupVerificationApi,
-                    onVerified = { page = AppPage.ModeSelection },
+                    onVerified = {
+                        page = if (NecessaryPermissions.allGranted(context)) {
+                            AppPage.ModeSelection
+                        } else {
+                            AppPage.NecessaryPermissions
+                        }
+                    },
                     onStartupInvalidated = {
                         startupRefreshGeneration++
                         page = AppPage.Announcement
@@ -140,14 +144,14 @@ fun StellarAssistantApp() {
                     onExit = { (context as? Activity)?.moveTaskToBack(true) },
                 )
 
+                AppPage.NecessaryPermissions -> NecessaryPermissionsScreen(
+                    onGranted = { page = AppPage.ModeSelection },
+                    onExit = { (context as? Activity)?.moveTaskToBack(true) },
+                )
+
                 AppPage.ModeSelection -> ModeSelectionScreen(
                     ghostLockKernelAvailable = ghostLockKernelAvailable,
                     dfRootPlatformAvailable = dfRootPlatformAvailable,
-                    activationMode = activationMode,
-                    onActivationModeChange = { mode ->
-                        activationMode = mode
-                        JailbreakActivationMode.write(context, mode)
-                    },
                     onOpenGhostLock = ::openGhostLockMode,
                     onOpenDfRoot = ::openDfRootMode,
                     onOpenStellar = ::openStellarMode,
