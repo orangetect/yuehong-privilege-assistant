@@ -47,16 +47,17 @@ import kotlinx.coroutines.withContext
 import roro.stellar.yuehong.R
 import roro.stellar.yuehong.dfroot.DfRootReporter
 import roro.stellar.yuehong.dfroot.DfRootRunner
+import roro.stellar.yuehong.shell.JailbreakActivationMode
 
 @Composable
-internal fun DfRootScreen(onBack: () -> Unit) {
+internal fun DfRootScreen(
+    activationMode: JailbreakActivationMode,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf(false) }
-    // DirtyFrag is one-shot per boot. Keep this guard internal; the page only
-    // exposes the device, run button and log requested for this mode.
-    var armed by remember { mutableStateOf(DfRootRunner.isArmed()) }
     var log by remember { mutableStateOf("") }
 
     fun appendLog(message: String) {
@@ -98,7 +99,7 @@ internal fun DfRootScreen(onBack: () -> Unit) {
 
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !running && !armed,
+                enabled = !running,
                 onClick = {
                     running = true
                     log = ""
@@ -108,7 +109,9 @@ internal fun DfRootScreen(onBack: () -> Unit) {
                         }
                         // The native result reports the activation script outcome;
                         // this app does not need its own KernelSU root grant.
-                        val outcome = runCatching { DfRootRunner.run(context, reporter) }
+                        val outcome = runCatching {
+                            DfRootRunner.run(context, activationMode, reporter)
+                        }
                         withContext(Dispatchers.Main) {
                             outcome.exceptionOrNull()?.let {
                                 appendLog("\n[DirtyFrag] ${it.message ?: it.javaClass.simpleName}\n")
@@ -124,7 +127,6 @@ internal fun DfRootScreen(onBack: () -> Unit) {
                                 },
                             )
                             running = false
-                            armed = DfRootRunner.isArmed()
                         }
                     }
                 },

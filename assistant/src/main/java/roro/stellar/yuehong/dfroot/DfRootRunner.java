@@ -5,6 +5,7 @@ import android.net.IpSecAlgorithm;
 import android.net.IpSecManager;
 import android.net.IpSecTransform;
 import android.os.Build;
+import roro.stellar.yuehong.shell.JailbreakActivationMode;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -30,11 +31,13 @@ import java.util.List;
 public final class DfRootRunner {
     private static final String NATIVE_BIN = "libdfroot.so";
     private static final String BOOTSTRAP_BIN = "libbootstrap.so";
-    private static final String SCRIPT_ASSET = "yhroot_ksu_activate.sh";
     private static final String WORK_DIRECTORY = "dfroot";
     private static final String BOOTSTRAP_FILE = "bootstrap";
-    private static final String SCRIPT_FILE = "yhroot_ksu_activate.sh";
-    private static final String LOG_FILE = "yhroot_ksu_activate.log";
+    private static final String MODE_FILE = ".yhroot_activation_mode";
+    private static final String GENERIC_SCRIPT_FILE = "yhroot_activate.sh";
+    private static final String KSU_SCRIPT_FILE = "yhroot_ksu_activate.sh";
+    private static final String APATCH_SCRIPT_FILE = "yhroot_ap_activate.sh";
+    private static final String KSU_LOG_FILE = "yhroot_ksu_activate.log";
 
     private DfRootRunner() {
     }
@@ -45,11 +48,14 @@ public final class DfRootRunner {
 
     public static int run(Context context, DfRootReporter reporter)
             throws Exception {
-        if (isArmed()) {
-            reporter.report("DirtyFrag is already armed; reboot before retrying.\n");
-            return 4;
-        }
+        return run(context, JailbreakActivationMode.read(context), reporter);
+    }
 
+    public static int run(Context context, JailbreakActivationMode activationMode,
+                          DfRootReporter reporter) throws Exception {
+        if (activationMode == null) {
+            activationMode = JailbreakActivationMode.read(context);
+        }
         Context deContext = context.getApplicationContext()
                 .createDeviceProtectedStorageContext();
         File work = new File(deContext.getFilesDir(), WORK_DIRECTORY);
@@ -58,15 +64,28 @@ public final class DfRootRunner {
         }
         stageBinary(new File(deContext.getApplicationInfo().nativeLibraryDir, BOOTSTRAP_BIN),
                 new File(work, BOOTSTRAP_FILE));
-        File activationScript = new File(work, SCRIPT_FILE);
-        deleteQuietly(activationScript);
-        stageAsset(deContext, SCRIPT_ASSET, new File(work, SCRIPT_FILE));
-        deleteQuietly(new File(work, LOG_FILE));
+        // The kernel hand-off starts bootstrap with an empty environment. Keep
+        // the selected mode in a device-protected marker so bootstrap can
+        // choose the matching script after it adopts the zygote context.
+        writeModeMarker(work, activationMode);
+        deleteQuietly(new File(work, GENERIC_SCRIPT_FILE));
+        deleteQuietly(new File(work, KSU_SCRIPT_FILE));
+        deleteQuietly(new File(work, APATCH_SCRIPT_FILE));
+        File selectedScript = new File(work, activationMode.getScriptAsset());
+        stageAsset(deContext, activationMode.getScriptAsset(),
+                selectedScript);
+        // Keep a fixed hand-off path as a final fallback. The DirtyFrag
+        // usermode helper intentionally launches bootstrap with a minimal
+        // environment, so mode selection must not depend on inherited env.
+        stageAsset(deContext, activationMode.getScriptAsset(),
+                new File(work, GENERIC_SCRIPT_FILE));
+        deleteQuietly(new File(work, KSU_LOG_FILE));
 
         File bin = new File(deContext.getApplicationInfo().nativeLibraryDir, NATIVE_BIN);
         if (!bin.isFile()) throw new IOException(NATIVE_BIN + " is missing from nativeLibraryDir");
 
-        reporter.report("DirtyFrag v1.15: the activation script will discover the installed KernelSU manager.\n");
+        reporter.report("DirtyFrag v1.15: selected " + activationMode.getPreferenceValue()
+                + " activation script.\n");
         reporter.report("DirtyFrag model: " + Build.MANUFACTURER + " " + Build.MODEL + "\n");
         reporter.report("DirtyFrag kernel: " + System.getProperty("os.version", "unknown") + "\n\n");
 
@@ -93,8 +112,8 @@ public final class DfRootRunner {
 
         try {
             int rc = runBinary(bin, reporter, encapSock.getPort(), spiObj.getSpi(),
-                    aesKey, senderPort);
-            reportActivationLog(work, reporter);
+                    aesKey, senderPort, activationMode);
+            reportActivationLog(work, activationMode, reporter);
             return rc;
         } finally {
             transform.close();
@@ -105,7 +124,7 @@ public final class DfRootRunner {
 
     public static String readActivationLog(Context context) {
         Context deContext = context.getApplicationContext().createDeviceProtectedStorageContext();
-        File log = new File(new File(deContext.getFilesDir(), WORK_DIRECTORY), LOG_FILE);
+        File log = new File(new File(deContext.getFilesDir(), WORK_DIRECTORY), KSU_LOG_FILE);
         if (!log.isFile()) return "";
         try (FileInputStream input = new FileInputStream(log)) {
             StringBuilder output = new StringBuilder();
@@ -119,10 +138,15 @@ public final class DfRootRunner {
         }
     }
 
-    private static void reportActivationLog(File work, DfRootReporter reporter) {
-        File log = new File(work, LOG_FILE);
+    private static void reportActivationLog(File work, JailbreakActivationMode activationMode,
+                                            DfRootReporter reporter) {
+        // The APatch script writes its lifecycle output to APatch's own log;
+        // its stdout is already streamed by DirtyFrag. KernelSU writes the
+        // detailed hand-off log into the staging directory.
+        if (activationMode != JailbreakActivationMode.KERNELSU) return;
+        File log = new File(work, KSU_LOG_FILE);
         if (!log.isFile()) return;
-        reporter.report("\n--- yhroot_ksu_activate.sh ---\n");
+        reporter.report("\n--- " + KSU_SCRIPT_FILE + " ---\n");
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 new FileInputStream(log), StandardCharsets.UTF_8))) {
             for (String line; (line = reader.readLine()) != null; ) {
@@ -156,7 +180,8 @@ public final class DfRootRunner {
     }
 
     private static int runBinary(File bin, DfRootReporter reporter, int encapPort,
-                                 int spi, byte[] aesKey, int senderPort) throws Exception {
+                                 int spi, byte[] aesKey, int senderPort,
+                                 JailbreakActivationMode activationMode) throws Exception {
         List<String> command = new ArrayList<>();
         command.add(bin.getAbsolutePath());
         command.add("--encap-port");
@@ -169,6 +194,8 @@ public final class DfRootRunner {
         command.add(hex(aesKey));
 
         ProcessBuilder builder = new ProcessBuilder(command);
+        builder.environment().put("YHROOT_ACTIVATION_MODE",
+                activationMode.getPreferenceValue());
         builder.redirectErrorStream(true);
         Process process = builder.start();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
@@ -188,5 +215,17 @@ public final class DfRootRunner {
 
     private static void deleteQuietly(File file) {
         if (file.exists()) file.delete();
+    }
+
+    private static void writeModeMarker(File work, JailbreakActivationMode activationMode)
+            throws IOException {
+        File marker = new File(work, MODE_FILE);
+        try (FileOutputStream output = new FileOutputStream(marker, false)) {
+            output.write(activationMode.getPreferenceValue().getBytes(StandardCharsets.US_ASCII));
+            output.write('\n');
+        }
+        if (!marker.setReadable(true, true)) {
+            throw new IOException("unable to make DirtyFrag mode marker readable");
+        }
     }
 }

@@ -73,7 +73,9 @@ fun StellarAssistantApp() {
         fun openDfRootMode() {
             if (!dfRootPlatformAvailable) return
             val activity = context as? Activity ?: return
-            activity.startActivity(Intent(context, DfRootActivity::class.java))
+            activity.startActivity(Intent(context, DfRootActivity::class.java).apply {
+                putExtra(JailbreakActivationMode.INTENT_EXTRA, activationMode.preferenceValue)
+            })
         }
 
         fun openStellarMode() {

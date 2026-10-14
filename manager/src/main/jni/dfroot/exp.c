@@ -18,6 +18,7 @@
 #include "aes256.h"
 
 static const char kCrashDump[] = "/apex/com.android.runtime/bin/crash_dump64";
+#define DIRTYFRAG_MODE_FILE "/data/user_de/0/roro.stellar.yuehong/files/dfroot/.yhroot_activation_mode"
 static char    *libcxx_ko_target;
 
 static int      g_encap_port;
@@ -36,6 +37,36 @@ struct PatchRestore {
 };
 
 static struct PatchRestore g_libcxx_r;
+
+static const char *dirtyfrag_activation_mode(void)
+{
+    static char mode[16];
+    const char *env = getenv("YHROOT_ACTIVATION_MODE");
+    if (env && (!strcmp(env, "apatch") || !strcmp(env, "kernelsu"))) {
+        return env;
+    }
+
+    FILE *f = fopen(DIRTYFRAG_MODE_FILE, "r");
+    if (!f) return "kernelsu";
+    if (!fgets(mode, sizeof(mode), f)) {
+        fclose(f);
+        return "kernelsu";
+    }
+    fclose(f);
+    mode[strcspn(mode, "\r\n \t")] = '\0';
+    if (!strcmp(mode, "apatch") || !strcmp(mode, "kernelsu")) return mode;
+    return "kernelsu";
+}
+
+static void wait_for_bootstrap_cleanup(void)
+{
+    /* The bootstrap owns the marker cleanup. Do not let a second UI click
+       race its rmmod/unlink tail after the native exploit has reported. */
+    for (int i = 0; i < 500; i++) {
+        if (access("/dev/df", F_OK) != 0) return;
+        usleep(10000);
+    }
+}
 
 /* IV = AES256_ECB_DEC(key, old_content) XOR desired
  * When kernel CBC-decrypts: plaintext = AES_DEC(key, ciphertext) XOR IV
@@ -536,7 +567,19 @@ static int exploit(void) {
     printf("\n=== init  ===\n");
     createOrphanProcess();
 
-    static const struct {
+    const char *activation_mode = dirtyfrag_activation_mode();
+    const char *activation_label = !strcmp(activation_mode, "apatch") ? "APatch" : "KernelSU";
+    char activation_start_msg[96];
+    char activation_success_msg[96];
+    char activation_error_msg[96];
+    snprintf(activation_start_msg, sizeof(activation_start_msg),
+             "bootstrap: running %s activation script", activation_label);
+    snprintf(activation_success_msg, sizeof(activation_success_msg),
+             "%s activation: SUCCESS", activation_label);
+    snprintf(activation_error_msg, sizeof(activation_error_msg),
+             "%s activation: ERROR - script failed", activation_label);
+
+    const struct {
         const char *path;
         const char *msg;
         int         rc;
@@ -548,9 +591,9 @@ static int exploit(void) {
         { "/dev/dfmw0", "bootstrap: WARNING - clone zygote env failed",     -1 },
         { "/dev/dfm3",  "bootstrap: setting partitions ro",                 -1 },
         { "/dev/dfmw1", "bootstrap: WARNING - set partitions ro failed",    -1 },
-        { "/dev/dfm5",  "bootstrap: running KernelSU activation script",     -1 },
-        { "/dev/dfm6",  "KernelSU activation: SUCCESS",                       0 },
-        { "/dev/dfme2", "KernelSU activation: ERROR - script failed",          1 },
+        { "/dev/dfm5",  activation_start_msg,                                  -1 },
+        { "/dev/dfm6",  activation_success_msg,                                 0 },
+        { "/dev/dfme2", activation_error_msg,                                   1 },
     };
     int seen[sizeof(markers)/sizeof(markers[0])] = {0};
 
@@ -578,5 +621,6 @@ int main(int argc, char **argv) {
     if (setup(argc, argv) != 0) return 2;
     int rc = exploit();
     cleanup();
+    if (rc == 0 || rc == 1) wait_for_bootstrap_cleanup();
     return rc;
 }
