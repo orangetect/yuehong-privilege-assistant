@@ -5,29 +5,58 @@
 #include <linux/module.h>
 #include <linux/namei.h>
 #include <linux/ptrace.h>
-
+#include <linux/slab.h>
+#include <asm/cpufeature.h>
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("DFRoot LKM");
 
 typedef unsigned long (*kallsyms_lookup_name_t)(const char *name);
+typedef unsigned long (*module_kallsyms_lookup_name_t)(const char *name);
 typedef void *(*umh_setup_t)(const char *path, char **argv, char **envp, gfp_t gfp,
                              void *init, void *cleanup, void *data);
 typedef int (*umh_exec_t)(void *info, int wait);
 typedef int  (*kern_path_t)(const char *, unsigned int, struct path *);
 typedef int  (*invalidate_t)(struct address_space *);
 typedef void (*path_put_t)(const struct path *);
+typedef int  (*insn_patch_t)(void *addrs[], u32 insns[], int cnt);
 
-static struct kprobe defex_enforce_kp;
-static struct kprobe defex_umh_kp;
-static int defex_enforce_ok;
-static int defex_umh_ok;
+static insn_patch_t insn_patch_text;
 
-static int null_pre_handler(struct kprobe *p, struct pt_regs *regs)
+static __nocfi void patch_fn_ret_zero(void *fn)
 {
-    (void)p;
-    regs->regs[0] = 0;         /* x0 = DEFEX_ALLOW */
-    regs->pc = regs->regs[30]; /* skip body: return to caller */
-    return 1;
+    u32  insn  = *(u32 *)fn;
+    int  skip  = 0;
+    bool pac_a = false, pac_b = false;
+    void *addrs[2];
+    u32   insns[2];
+
+    while (skip < 2) {
+        switch (insn) {
+        case 0xD503233F: pac_a = true; goto skip_insn; /* PACIASP */
+        case 0xD503237F: pac_b = true; goto skip_insn; /* PACIBSP */
+        case 0xD503241F:                               /* BTI     */
+        case 0xD503245F:                               /* BTI c   */
+        case 0xD503249F:                               /* BTI j   */
+        case 0xD50324DF:                               /* BTI jc  */
+        skip_insn:
+            insn = *(u32 *)((u8 *)fn + ++skip * 4);
+            continue;
+        }
+        break;
+    }
+
+    addrs[0] = (u8 *)fn + skip * 4;
+    addrs[1] = (u8 *)fn + skip * 4 + 4;
+    insns[0] = 0xD2800000;
+    /* PACIASP/PACIBSP are hint-space NOPs on CPUs without ARMv8.3 pointer auth,
+     * but RETAA/RETAB are not — they fault as undefined. Only emit them when
+     * hardware auth is actually present and the signed LR needs stripping. */
+    insns[1] = (pac_b && system_supports_address_auth()) ? 0xD65F0FFF :
+               (pac_a && system_supports_address_auth()) ? 0xD65F0BFF :
+                                                           0xD65F03C0;
+
+    if (insn_patch_text(addrs, insns, 2))
+        pr_warn("dfroot: patch failed at %px\n", fn);
 }
 
 static int __nocfi __init dfroot_init(void)
@@ -40,24 +69,29 @@ static int __nocfi __init dfroot_init(void)
     umh_setup_t umh_setup;
     umh_exec_t  umh_exec;
     bool *selinux_state;
+    module_kallsyms_lookup_name_t mkln;
     struct kprobe kln_kp;
+    void *oplus_exe_fn, *oplus_root_fn, *defex_enforce_fn, *defex_umh_fn;
     void *info;
     int ret;
 
-    // UMH command to run. The three rmmod calls are Oppo/OnePlus only and fail
-    // on every other kernel, and `sh -c` returns the exit code of the LAST
-    // command - so on a Samsung the whole helper "returned 256" (exit 1), the
-    // bootstrap never ran and the run died at the verify stage (issue #5). The
-    // trailing `exit 0` is what makes the helper report success everywhere.
+    // UMH command to run. Upstream 4.2-4.5 replaced the old
+    // "touch /dev/dfm0; rmmod oplus_* 2>/dev/null; exit 0" chain. Those rmmods
+    // tripped the Oppo/OnePlus security anti-tamper reset (our issue #21), and
+    // because `sh -c` returns the exit code of the LAST command, a failing
+    // rmmod also made the helper report "returned 256" everywhere else, which
+    // is what killed the run at the verify stage (our issue #5). The vendor
+    // hardening checks are now patched in-kernel with aarch64_insn_patch_text,
+    // the helper only touches the marker and execs bootstrap, and the call is
+    // UMH_WAIT_EXEC, so there is no child exit status left to leak.
     static const char sh[] = "/system/bin/sh";
+    /* YueHong stages bootstrap in its device-protected files directory. */
+    static const char bootstrap[] =
+        "/data/user_de/0/roro.stellar.yuehong/files/dfroot/bootstrap";
+    static char cmd[512];
     static char *envp[] = { "PATH=/system/bin", NULL };
-    static char *argv[] = { (char *)sh, "-c",
-        "touch /dev/dfm0;"
-        " rmmod oplus_secure_harden 2>/dev/null;"           //
-        " rmmod oplus_security_keventupload 2>/dev/null;"   // Oppo/OnePlus
-        " rmmod oplus_security_guard 2>/dev/null;"          //
-        " exit 0",
-        NULL };
+    static char *argv[] = { (char *)sh, "-c", cmd, NULL };
+    snprintf(cmd, sizeof(cmd), "touch /dev/dfm0; exec %s", bootstrap);
 
     // Symbol finder
     kln_kp = (struct kprobe){ .symbol_name = "kallsyms_lookup_name" };
@@ -67,6 +101,14 @@ static int __nocfi __init dfroot_init(void)
     }
     get_addr = (kallsyms_lookup_name_t)kln_kp.addr;
     unregister_kprobe(&kln_kp);
+
+    insn_patch_text = (insn_patch_t)get_addr("aarch64_insn_patch_text");
+    if (!insn_patch_text) {
+        pr_err("dfroot: aarch64_insn_patch_text not found\n");
+        return -EINVAL;
+    }
+
+    mkln = (module_kallsyms_lookup_name_t)get_addr("module_kallsyms_lookup_name");
 
     // Invalidate page_cache for crash_dump64
     // NOTE: this can cause issues if a process is currently executing
@@ -94,22 +136,39 @@ static int __nocfi __init dfroot_init(void)
     WRITE_ONCE(*selinux_state, false);
     pr_info("dfroot: selinux_state permissive\n");
 
+    // Oppo/OnePlus
+    oplus_exe_fn = (void *)(mkln ? mkln("oplus_exe_block_ret_handler") : 0);
+    if (!oplus_exe_fn)
+        pr_err("dfroot: oplus_exe_block_ret_handler not found, skipping\n");
+    else {
+        patch_fn_ret_zero(oplus_exe_fn);
+        pr_info("dfroot: oplus_exe_block_ret_handler patched\n");
+    }
+
+    oplus_root_fn = (void *)(mkln ? mkln("oplus_root_check_post_handler") : 0);
+    if (!oplus_root_fn)
+        pr_err("dfroot: oplus_root_check_post_handler not found, skipping\n");
+    else {
+        patch_fn_ret_zero(oplus_root_fn);
+        pr_info("dfroot: oplus_root_check_post_handler patched\n");
+    }
+
     // Samsung
-    defex_enforce_kp = (struct kprobe){ .addr = (kprobe_opcode_t *)get_addr("task_defex_enforce"),
-                                .pre_handler = null_pre_handler };
-    defex_enforce_ok = register_kprobe(&defex_enforce_kp) == 0;
-    if (!defex_enforce_ok)
-        pr_err("dfroot: task_defex_enforce not in this kernel, skipping\n");
-    else
-        pr_info("dfroot: task_defex_enforce hooked\n");
-    
-    defex_umh_kp = (struct kprobe){ .addr = (kprobe_opcode_t *)get_addr("task_defex_user_exec"),
-                              .pre_handler = null_pre_handler };
-    defex_umh_ok = register_kprobe(&defex_umh_kp) == 0;
-    if (!defex_umh_ok)
-        pr_err("dfroot: task_defex_user_exec not in this kernel, skipping\n");
-    else
-        pr_info("dfroot: task_defex_user_exec hooked\n");
+    defex_enforce_fn = (void *)get_addr("task_defex_enforce");
+    if (!defex_enforce_fn)
+        pr_err("dfroot: task_defex_enforce not found, skipping\n");
+    else {
+        patch_fn_ret_zero(defex_enforce_fn);
+        pr_info("dfroot: task_defex_enforce patched\n");
+    }
+
+    defex_umh_fn = (void *)get_addr("task_defex_user_exec");
+    if (!defex_umh_fn)
+        pr_err("dfroot: task_defex_user_exec not found, skipping\n");
+    else {
+        patch_fn_ret_zero(defex_umh_fn);
+        pr_info("dfroot: task_defex_user_exec patched\n");
+    }
 
     // Run UMH command
     umh_setup = (umh_setup_t)get_addr("call_usermodehelper_setup");
@@ -117,28 +176,22 @@ static int __nocfi __init dfroot_init(void)
     if (!umh_setup || !umh_exec) {
         pr_err("dfroot: usermodehelper symbols missing (setup=%px exec=%px)\n",
                umh_setup, umh_exec);
-        return 0;
+        return -EINVAL;
     }
 
     info = umh_setup(sh, argv, envp, GFP_KERNEL, NULL, NULL, NULL);
     if (!info) {
         pr_err("dfroot: usermodehelper_setup: returned NULL\n");
-        return 0;
+        return -EINVAL;
     }
     // bypass CONFIG_STATIC_USERMODEHELPER_PATH="" overriding path to ""
     ((struct subprocess_info *)info)->path = sh;
 
-    ret = umh_exec(info, UMH_WAIT_PROC);
+    ret = umh_exec(info, UMH_WAIT_EXEC);
     pr_info("dfroot: usermodehelper_exec returned %d\n", ret);
     
-    return 0;
+    return -ENODEV; /* return any error to unload module */
 }
 
-static void __exit dfroot_exit(void)
-{
-    if (defex_enforce_ok) unregister_kprobe(&defex_enforce_kp);
-    if (defex_umh_ok)     unregister_kprobe(&defex_umh_kp);
-}
-
+/* no module_exit: we never unload; saves .exit sections */
 module_init(dfroot_init);
-module_exit(dfroot_exit);

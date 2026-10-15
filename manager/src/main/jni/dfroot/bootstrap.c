@@ -173,17 +173,6 @@ static void touch(const char *path)
         close(fd);
 }
 
-static void clear_run_markers(void)
-{
-    static const char *const markers[] = {
-        "/dev/df", "/dev/dfm0", "/dev/dfm1", "/dev/dfm2", "/dev/dfm3",
-        "/dev/dfm4", "/dev/dfm5", "/dev/dfm6", "/dev/dfme0", "/dev/dfme1",
-        "/dev/dfme2", "/dev/dfmw0", "/dev/dfmw1",
-    };
-    for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); i++)
-        unlink(markers[i]);
-}
-
 /* Mark every installed module disabled before ksud runs. A broken module
  * otherwise loads on the next boot and bootloops the device. */
 static int disable_modules(void)
@@ -207,13 +196,11 @@ static int disable_modules(void)
 int main(void)
 {
     touch("/dev/dfm1");
-    int result = 0;
     char su_manager[256];
     int soft_reboot, disable_mods;
     if (read_prefs(su_manager, sizeof(su_manager), &soft_reboot, &disable_mods) != 0) {
         touch("/dev/dfme0");
-        result = 1;
-        goto cleanup;
+        return 1;
     }
 
     touch("/dev/dfm2");
@@ -228,29 +215,37 @@ int main(void)
         touch("/dev/dfm4");
         if (disable_modules()) {
             touch("/dev/dfme1");
-            result = 1;
-            goto cleanup;
+            return 1;
         }
     }
 
     touch("/dev/dfm5");
-    if (run_ctx(NULL, (char *[]){ KSUD_STAGE, "late-load", "--package-name", su_manager, NULL }) == 0) {
-        touch("/dev/dfm6");
-        if (soft_reboot) {
-            while (late_load_running()) sleep(1);
-            run_ctx("u:r:ksu:s0", (char *[]){ KSUD, "soft-reboot", NULL });
+    // ksu only allows init to switch to ksud context and we are in kernel context now
+    // once ksu starts, selinux is enforcing, but here its still permissive
+    // switch our context while we still can
+    pid_t pid = fork();
+    if (pid < 0)
+        return 1;
+    if (pid == 0) {
+        int fd = open("/proc/self/attr/current", O_WRONLY);
+        if (fd >= 0) {
+            const char *ctx = "u:r:init:s0";
+            write(fd, ctx, strlen(ctx));
+            close(fd);
         }
-    } else {
-        touch("/dev/dfme2");
+        if (run_ctx(NULL, (char *[]){ KSUD_STAGE, "late-load", "--package-name", su_manager, NULL }) == 0) {
+            touch("/dev/dfm6");
+            if (soft_reboot) {
+                while (late_load_running()) sleep(1);
+                run_ctx("u:r:ksu:s0", (char *[]){ KSUD, "soft-reboot", NULL });
+            }
+        } else {
+            touch("/dev/dfme2");
+        }
+        _exit(0);
     }
+    int status;
+    waitpid(pid, &status, 0);
 
-    run_ctx(NULL, (char *[]){ "/system/bin/rmmod", "dfroot", NULL });
-
-cleanup:
-    /* The page-cache patch is reusable after the module is unloaded. */
-    /* Leave the terminal marker visible long enough for exp.c to consume it;
-     * the marker is removed immediately afterwards so a later run is clean. */
-    sleep(1);
-    clear_run_markers();
-    return result;
+    return 0;
 }

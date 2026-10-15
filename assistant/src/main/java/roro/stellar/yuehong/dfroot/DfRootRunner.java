@@ -45,9 +45,13 @@ public final class DfRootRunner {
         return new File("/dev/df").exists();
     }
 
-    public static int run(Context context, DfRootReporter reporter) throws Exception {
+    public static synchronized int run(Context context, DfRootReporter reporter) throws Exception {
         Context appContext = context.getApplicationContext();
         Context deContext = appContext.createDeviceProtectedStorageContext();
+        if (isArmed()) {
+            reporter.report("already hooked, skipping\n");
+            return 0;
+        }
         String managerPackage = KernelSuManagerSelection.INSTANCE.selectedPackage(appContext);
         ApplicationInfo manager = appContext.getPackageManager()
                 .getApplicationInfo(managerPackage, 0);
@@ -75,7 +79,7 @@ public final class DfRootRunner {
         File bin = new File(deContext.getApplicationInfo().nativeLibraryDir, NATIVE_BIN);
         if (!bin.isFile()) throw new IOException(NATIVE_BIN + " is missing from nativeLibraryDir");
 
-        reporter.report("DirtyFrag v1.15: upstream KernelSU activation.\n");
+        reporter.report("DirtyFrag v1.16: upstream KernelSU activation.\n");
         reporter.report("DirtyFrag manager package: " + managerPackage + "\n");
         reporter.report("DirtyFrag model: " + Build.MANUFACTURER + " " + Build.MODEL + "\n");
         reporter.report("DirtyFrag kernel: " + System.getProperty("os.version", "unknown") + "\n\n");
@@ -107,10 +111,12 @@ public final class DfRootRunner {
 
     private static void stageManagerKsud(ApplicationInfo manager, File destination)
             throws IOException {
-        File extracted = new File(manager.nativeLibraryDir, "libksud.so");
-        if (extracted.isFile()) {
-            stageBinary(extracted, destination);
-            return;
+        if (manager.nativeLibraryDir != null) {
+            File extracted = new File(manager.nativeLibraryDir, "libksud.so");
+            if (extracted.isFile()) {
+                stageBinary(extracted, destination);
+                return;
+            }
         }
         List<String> apks = new ArrayList<>();
         if (manager.sourceDir != null) apks.add(manager.sourceDir);

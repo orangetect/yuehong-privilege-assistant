@@ -57,8 +57,8 @@ GhostLock C 核心、Rust 镜像/OTA 提取器、内核偏移表及许可证随�
 
 - Project: DirtyFrag
 - Source: https://github.com/mitschud/DirtyFrag
-- Synced source: user-provided `DirtyFrag-master.zip` (DirtyFrag v1.15, SHA-256 `266A8EB91EDA3A4D528F4E896C7BC14063A5A3585A20BDBE71AEE3EE35737C45`)
-- Included files: `manager/src/main/jni/dfroot/` contains the DirtyFrag native sources and eight upstream KMI module artifacts. The bootstrap integration is modified to invoke the YueHong `yhroot_ksu_activate.sh` asset.
+- Synced source: user-provided `DirtyFrag-master (1).zip` (DirtyFrag v1.16, SHA-256 `910E53DB260D89DF9CC73244B6D03860B2CE78E1BC28B0A72C11B9B4E11E1B7D`)
+- Included files: `manager/src/main/jni/dfroot/` contains the DirtyFrag 1.16 native sources and eight upstream KMI module artifacts. The bootstrap integration keeps YueHong's device-protected package path and reads the selected manager package directly; DirtyFrag does not invoke an activation shell script.
 - License status: `lkm/dfroot.c` declares GPL and `include.inc` retains an Odzhan BSD-style license header. The upstream repository does not expose one clear root-level LICENSE covering every file, so the remaining DirtyFrag files are retained with an explicit “upstream license pending further verification” note in `LICENSE_REVIEW.md`. These files are not relicensed as MPL-2.0.
 
 版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。

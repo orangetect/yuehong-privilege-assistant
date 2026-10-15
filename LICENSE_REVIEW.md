@@ -23,8 +23,8 @@
 ## DirtyFrag native chain
 
 - 上游：https://github.com/mitschud/DirtyFrag
-- 同步版本：用户提供的 `DirtyFrag-master.zip`，DirtyFrag `v1.15`，ZIP SHA-256 `266A8EB91EDA3A4D528F4E896C7BC14063A5A3585A20BDBE71AEE3EE35737C45`。
-- 集成位置：`manager/src/main/jni/dfroot/`；本工程额外修改了 bootstrap，使其调用 `assistant/src/main/assets/yhroot_ksu_activate.sh`。
+- 同步版本：用户提供的 `DirtyFrag-master (1).zip`，DirtyFrag `v1.16`，ZIP SHA-256 `910E53DB260D89DF9CC73244B6D03860B2CE78E1BC28B0A72C11B9B4E11E1B7D`。
+- 集成位置：`manager/src/main/jni/dfroot/`；本工程只修改 bootstrap 的设备保护路径和日志交接，直接把所选管理器包名传给 `libksud.so`，DirtyFrag 模式不调用激活脚本。
 - DirtyFrag `lkm/dfroot.c` 声明 GPL；`include.inc` 保留 Odzhan 的 BSD 风格许可头。
 - 上游仓库根目录没有一份清晰、统一覆盖全部 DirtyFrag 文件的 LICENSE 文件。当前公开源码保留上述文件头，并将剩余文件标为“上游许可证待进一步核对”；DirtyFrag 代码不笼统声明为 MPL-2.0。
 
