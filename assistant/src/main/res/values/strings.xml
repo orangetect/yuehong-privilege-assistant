@@ -187,10 +187,14 @@
     <string name="dfroot_clear_log">Clear log</string>
     <string name="dfroot_log_empty">DirtyFrag output and the KernelSU manager hand-off log will appear here.</string>
     <string name="necessary_permissions_title">Required permissions</string>
+    <string name="necessary_permissions_badge">First-run check</string>
+    <string name="necessary_permissions_subtitle">Complete this check before choosing an escalation mode.</string>
     <string name="necessary_permissions_checking">Checking required permissions…</string>
     <string name="necessary_permissions_body">The assistant needs app-list access to find KernelSU managers and notification access to show activation results.</string>
     <string name="necessary_permission_app_list">App-list access</string>
     <string name="necessary_permission_notifications">Notifications</string>
+    <string name="necessary_permission_granted">Allowed</string>
+    <string name="necessary_permission_missing">Needs access</string>
     <string name="necessary_permission_app_list_hint">Allow app-list access in the system permission manager, then check again.</string>
     <string name="necessary_permissions_retry">Check again</string>
 </resources>

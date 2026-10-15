@@ -185,10 +185,14 @@
     <string name="dfroot_clear_log">清空日志</string>
     <string name="dfroot_log_empty">DirtyFrag 输出和 KernelSU 管理器接管日志会显示在这里。</string>
     <string name="necessary_permissions_title">必要权限</string>
+    <string name="necessary_permissions_badge">首次运行检查</string>
+    <string name="necessary_permissions_subtitle">完成检查后才能进入提权模式选择。</string>
     <string name="necessary_permissions_checking">正在检查必要权限…</string>
     <string name="necessary_permissions_body">助手需要读取应用列表权限来查找 KernelSU 管理器，并需要通知权限来显示激活结果。</string>
     <string name="necessary_permission_app_list">读取应用列表</string>
     <string name="necessary_permission_notifications">通知权限</string>
+    <string name="necessary_permission_granted">已允许</string>
+    <string name="necessary_permission_missing">需要授权</string>
     <string name="necessary_permission_app_list_hint">请在系统应用权限管理中允许读取应用列表，授权后点击重新检查。</string>
     <string name="necessary_permissions_retry">重新检查</string>
 </resources>
