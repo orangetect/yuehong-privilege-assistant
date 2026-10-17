@@ -1,0 +1,60 @@
+name: Sync all branches with upstream
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPOSITORY: qq2070006042-create/yuehong-privilege-assistant   # 请根据实际需要同步的上游仓库调整
+
+jobs:
+  sync_all:
+    name: Sync All Branches
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch and Sync All Branches
+        run: |
+          git remote add upstream https://github.com/${{ env.UPSTREAM_REPOSITORY }}.git
+          git fetch upstream --prune
+
+          # 获取上游的所有远程分支，并排除 HEAD
+          for remote_branch in $(git branch -r | grep 'upstream/' | grep -v 'HEAD'); do
+            # 提取分支名（例如将 "upstream/main" 提取为 "main"）
+            branch="${remote_branch#upstream/}"
+            
+            echo "======================================"
+            echo "正在处理分支: $branch"
+            echo "======================================"
+
+            # 检查本地或 origin 是否已有该分支，没有则创建
+            if git show-ref --verify --quiet "refs/heads/$branch"; then
+              git checkout "$branch"
+            else
+              git checkout -b "$branch" "origin/$branch" || git checkout -b "$branch" "$remote_branch"
+            fi
+
+            # 合并上游的对应分支
+            git merge "$remote_branch" --no-edit || {
+              echo "警告: 分支 $branch 合并时出现冲突，跳过推送此分支。"
+              git merge --abort
+              continue
+            }
+
+            # 推送到自己的仓库
+            git push origin "$branch"
+          done
