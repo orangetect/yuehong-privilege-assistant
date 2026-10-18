@@ -8,20 +8,15 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
-import android.content.ContentValues;
-import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Insets;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.MediaStore;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.text.SpannableStringBuilder;
@@ -35,73 +30,39 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.window.OnBackInvokedDispatcher;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-import org.json.JSONTokener;
-
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import androidx.activity.ComponentActivity;
 
 public class GhostLockActivity extends ComponentActivity {
-    private enum OffsetPlatform {
-        MEDIATEK,
-        QUALCOMM,
-        UNKNOWN,
-    }
-
     private static final String TAG = "GhostLockApp";
     private static final String BINARY_NAME = "libghostlock.so";
     private static final String EXTRACT_NAME = "libextract.so";
-    private static final String ACTIVATION_SCRIPT = ".ghostlock_activation.sh";
-    private static final String ACTIVATION_STATUS = ".ghostlock_activation.status";
-    private static final String OFFSETS_JSON = "offsets.json";
-    private static final int REQ_IMPORT_OFFSETS = 1001;
-    private static final int REQ_PICK_BOOT = 1002;
-    private static final int REQ_PICK_XBL = 1003;
     private static final String PREFS = "ghostlock_prefs";
-    private static final String PREF_CPU_PAIR = "cpu_pair";
     private static final String PREF_BUILTIN_OFFSET_STATUS = "builtin_offset_status";
     private static final String STATUS_FAILED_PREFIX = "failed:";
     private static final String STATUS_SUCCESS_PREFIX = "success:";
     private static final int MAX_NATIVE_ATTEMPTS = 2;
-    private static final int EXIT_ACTIVATION_FAILED = 2;
     private static final long NATIVE_RETRY_DELAY_MS = 1500L;
     private static final int COLOR_RED = 0xFFFF6B6B;
     private static final int COLOR_GREEN = 0xFF5FD68A;
@@ -113,8 +74,6 @@ public class GhostLockActivity extends ComponentActivity {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean automaticFlowRunning = new AtomicBoolean(false);
     private final StringBuilder logBuffer = new StringBuilder();
-    private final List<int[]> cpuPairs = new ArrayList<>();
-    private final List<String> cpuPairLabels = new ArrayList<>();
     private final Map<View, ValueAnimator> viewAnimators = new HashMap<>();
     private TextView deviceInfo;
     private TextView logView;
@@ -124,8 +83,6 @@ public class GhostLockActivity extends ComponentActivity {
     private EditText otaUrlInput;
     private GhostLockOtaApi ghostLockOtaApi;
     private View rootView;
-    private int cpuPairIndex;
-    private boolean parseWantsXbl;
 
     /**
      * Returns the value when it looks like a real device name, else null.
@@ -154,94 +111,6 @@ public class GhostLockActivity extends ComponentActivity {
         } catch (Throwable ignored) {
             return "";
         }
-    }
-
-    /** Selects the input contract for the offset-table flow only. */
-    private OffsetPlatform detectOffsetPlatform() {
-        String socManufacturer = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                ? Build.SOC_MANUFACTURER : "";
-        String socModel = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                ? Build.SOC_MODEL : "";
-        String probe = (socManufacturer + " " + socModel + " "
-                + getSystemProperty("ro.soc.manufacturer") + " "
-                + getSystemProperty("ro.soc.model") + " "
-                + getSystemProperty("ro.board.platform") + " "
-                + getSystemProperty("ro.hardware") + " "
-                + getSystemProperty("ro.boot.hardware"))
-                .toLowerCase(Locale.ROOT);
-        if (probe.contains("mediatek") || probe.contains("mtk")
-                || probe.contains("dimensity") || probe.contains("helio")) {
-            return OffsetPlatform.MEDIATEK;
-        }
-        if (probe.contains("qualcomm") || probe.contains("qcom")
-                || probe.contains("snapdragon")
-                || probe.matches(".*\\bsm[0-9a-z]+\\b.*")) {
-            return OffsetPlatform.QUALCOMM;
-        }
-        return OffsetPlatform.UNKNOWN;
-    }
-
-    private void runAutomaticOffsetExtract(String input) {
-        OffsetPlatform platform = detectOffsetPlatform();
-        if (platform == OffsetPlatform.MEDIATEK) {
-            appendLog("[偏移表] 联发科平台：提取 boot.img");
-        } else if (platform == OffsetPlatform.QUALCOMM) {
-            appendLog("[偏移表] 骁龙平台：提取 boot.img + xbl_config.img");
-        } else {
-            appendLog("[偏移表] 未识别 SoC，按完整 OTA 提取 boot.img；存在 xbl_config 时一并提取");
-        }
-        runExtract(input, null, true);
-    }
-
-    private static String readSysFile(String path) {
-        File f = new File(path);
-        if (!f.isFile()) {
-            return "";
-        }
-        try (BufferedReader r = new BufferedReader(new FileReader(f))) {
-            String line = r.readLine();
-            return line == null ? "" : line.trim();
-        } catch (IOException ignored) {
-            return "";
-        }
-    }
-
-    private static List<Integer> parseCpuList(String s) {
-        List<Integer> out = new ArrayList<>();
-        if (s == null || s.isEmpty()) {
-            return out;
-        }
-        for (String part : s.split(",")) {
-            String[] range = part.split("-");
-            try {
-                int lo = Integer.parseInt(range[0].trim());
-                int hi = range.length > 1 ? Integer.parseInt(range[1].trim()) : lo;
-                for (int cpu = lo; cpu <= hi; cpu++) {
-                    out.add(cpu);
-                }
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return out;
-    }
-
-    private static long readMaxFreq(int cpu) {
-        String v = readSysFile("/sys/devices/system/cpu/cpu" + cpu + "/cpufreq/cpuinfo_max_freq");
-        if (v.isEmpty()) {
-            return -1;
-        }
-        try {
-            return Long.parseLong(v);
-        } catch (NumberFormatException e) {
-            return -1;
-        }
-    }
-
-    private static String formatFreq(long khz) {
-        if (khz >= 1_000_000L) {
-            return String.format(Locale.ROOT, "%.2f GHz", khz / 1_000_000.0);
-        }
-        return String.format(Locale.ROOT, "%.0f MHz", khz / 1000.0);
     }
 
     /**
@@ -307,15 +176,6 @@ public class GhostLockActivity extends ComponentActivity {
         return input.replaceAll("\u001B\\[[;\\d]*m", "");
     }
 
-    private static void copyStream(InputStream in, OutputStream out) throws IOException {
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = in.read(buf)) >= 0) {
-            out.write(buf, 0, n);
-        }
-        out.flush();
-    }
-
     private static void setViewColor(View view, int color) {
         if (view.getBackground() instanceof GradientDrawable) {
             ((GradientDrawable) view.getBackground().mutate()).setColor(color);
@@ -332,113 +192,6 @@ public class GhostLockActivity extends ComponentActivity {
             }
         }
         return null;
-    }
-
-    /** True when the current exact uname release is bundled by upstream. */
-    private boolean isBuiltInKernelSupported(String version) {
-        for (String supported : SupportedKernels.UNAMES) {
-            if (supported.equals(version)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** A kernel can run with an upstream built-in table or matching OTA offsets. */
-    private boolean isKernelSupported() {
-        String version = System.getProperty("os.version", "");
-        return isBuiltInKernelSupported(version) || importedOffsetsMatch(version);
-    }
-
-    /**
-     * True when <filesDir>/offsets.json contains the current release.
-     */
-    private boolean importedOffsetsMatch(String version) {
-        File offsets = new File(getFilesDir(), OFFSETS_JSON);
-        if (!offsets.isFile()) {
-            return false;
-        }
-        try (BufferedReader reader = new BufferedReader(new FileReader(offsets))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append('\n');
-            }
-            Matcher matcher = Pattern.compile("\"release\"\\s*:\\s*\"([^\"]+)\"").matcher(sb);
-            while (matcher.find()) {
-                if (version.equals(matcher.group(1))) {
-                    return true;
-                }
-            }
-        } catch (IOException ignored) {
-        }
-        return false;
-    }
-
-    private void buildCpuPairs() {
-        cpuPairs.clear();
-        cpuPairLabels.clear();
-        List<Integer> online = parseCpuList(readSysFile("/sys/devices/system/cpu/online"));
-        if (!online.isEmpty()) {
-            Map<Long, List<Integer>> byFreq = new TreeMap<>(Collections.reverseOrder());
-            for (int cpu : online) {
-                long freq = readMaxFreq(cpu);
-                if (freq > 0) {
-                    byFreq.computeIfAbsent(freq, k -> new ArrayList<>()).add(cpu);
-                }
-            }
-            for (Map.Entry<Long, List<Integer>> entry : byFreq.entrySet()) {
-                List<Integer> cluster = entry.getValue();
-                Collections.sort(cluster);
-                String freqText = " · " + formatFreq(entry.getKey());
-                for (int i = 0; i + 1 < cluster.size(); i += 2) {
-                    int main = cluster.get(i);
-                    int consumer = cluster.get(i + 1);
-                    cpuPairs.add(new int[]{main, consumer});
-                    cpuPairLabels.add(main + "," + consumer + freqText);
-                }
-            }
-        }
-        // Safe 0,1 fallback last: big cores are the default and listed first.
-        boolean hasSafe = false;
-        for (int[] pair : cpuPairs) {
-            if (pair[0] == 0 && pair[1] == 1) {
-                hasSafe = true;
-                break;
-            }
-        }
-        if (!hasSafe) {
-            cpuPairs.add(new int[]{0, 1});
-            long autoFreq = readMaxFreq(0);
-            cpuPairLabels.add("0,1" + (autoFreq > 0 ? " · " + formatFreq(autoFreq) : ""));
-        }
-    }
-
-    private void restoreCpuPair() {
-        cpuPairIndex = 0;
-        String saved = getSharedPreferences(PREFS, MODE_PRIVATE).getString(PREF_CPU_PAIR, null);
-        if (saved == null || saved.equals("auto")) {
-            // Default to the big-core pair (first entry); a legacy "auto"
-            // preference is treated the same.  The native side falls back to
-            // 0/1 when the pair is unavailable.
-            return;
-        }
-        String[] parts = saved.split(",");
-        if (parts.length != 2) {
-            return;
-        }
-        try {
-            int main = Integer.parseInt(parts[0].trim());
-            int consumer = Integer.parseInt(parts[1].trim());
-            for (int i = 0; i < cpuPairs.size(); i++) {
-                int[] pair = cpuPairs.get(i);
-                if (pair[0] == main && pair[1] == consumer) {
-                    cpuPairIndex = i;
-                    return;
-                }
-            }
-        } catch (NumberFormatException ignored) {
-        }
     }
 
     @Override
@@ -463,8 +216,6 @@ public class GhostLockActivity extends ComponentActivity {
 
         applyWindowInsetsPadding();
         deviceInfo.setText(buildDeviceSummary());
-        buildCpuPairs();
-        restoreCpuPair();
         applyKernelStatus();
         setRunState(RunState.IDLE);
 
@@ -565,66 +316,6 @@ public class GhostLockActivity extends ComponentActivity {
         }
     }
 
-    private void importOffsets() {
-        pickDocument(REQ_IMPORT_OFFSETS);
-    }
-
-    /** Export one OTA-parsed kernel entry as a shareable offsets.json file. */
-    private void exportOffsets() {
-        String current = System.getProperty("os.version", "");
-        Map<String, JSONObject> byRelease;
-        try {
-            byRelease = exportableEntries();
-        } catch (IOException e) {
-            appendLog("export offsets failed: " + e.getMessage());
-            toast(R.string.ghostlock_export_failed);
-            return;
-        }
-        if (byRelease.isEmpty()) {
-            toast(R.string.ghostlock_export_none);
-            return;
-        }
-        List<String> releases = new ArrayList<>(byRelease.keySet());
-        releases.sort(Comparator.comparing((String release) -> release.equals(current) ? 0 : 1).thenComparing(Comparator.naturalOrder()));
-        String[] labels = new String[releases.size()];
-        for (int i = 0; i < releases.size(); i++) {
-            String release = releases.get(i);
-            labels[i] = release.equals(current) ? getString(R.string.ghostlock_export_current_marker, release) : release;
-        }
-        new AlertDialog.Builder(this).setTitle(R.string.ghostlock_export_title).setItems(labels, (dialog, which) -> {
-            String release = releases.get(which);
-            JSONObject entry = byRelease.get(release);
-            worker.execute(() -> shareOffsets(entry, release));
-        }).setNegativeButton(R.string.ghostlock_cancel, null).show();
-    }
-
-    /** OTA-parsed entries currently stored by the app. */
-    private Map<String, JSONObject> exportableEntries() throws IOException {
-        Map<String, JSONObject> byRelease = new LinkedHashMap<>();
-        JSONArray imported = readOffsetsFile(new File(getFilesDir(), OFFSETS_JSON));
-        if (imported != null) {
-            for (int i = 0; i < imported.length(); i++) {
-                JSONObject entry = imported.optJSONObject(i);
-                if (entry == null) {
-                    continue;
-                }
-                String release = entry.optString("release", "");
-                if (release.isEmpty()) {
-                    continue;
-                }
-                byRelease.putIfAbsent(release, entry);
-            }
-        }
-        return byRelease;
-    }
-
-    /**
-     * Show the export button only when there is data worth sharing.
-     */
-    private void updateExportButton() {
-        // 设置/导入/导出面板已从产品界面移除；偏移由 OTA 链接自动生成。
-    }
-
     private void cancelViewAnimation(View view) {
         ValueAnimator running = viewAnimators.remove(view);
         if (running != null) {
@@ -692,134 +383,47 @@ public class GhostLockActivity extends ComponentActivity {
         anim.start();
     }
 
-    /**
-     * Write one entry to Downloads and open the system share sheet.
-     */
-    private void shareOffsets(JSONObject entry, String release) {
-        try {
-            JSONArray payload = new JSONArray();
-            payload.put(entry);
-            String safeRelease = release.replaceAll("[^A-Za-z0-9._-]", "_");
-            String name = "offsets-" + safeRelease + ".json";
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.Downloads.DISPLAY_NAME, name);
-            values.put(MediaStore.Downloads.MIME_TYPE, "application/json");
-            Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-            if (uri == null) {
-                throw new IOException("cannot create download entry");
-            }
-            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
-                if (out == null) {
-                    throw new IOException("cannot open download entry");
-                }
-                out.write(payload.toString(2).getBytes(StandardCharsets.UTF_8));
-            }
-            appendLog("exported offsets: " + name);
-            final Uri sharedUri = uri;
-            ui.post(() -> {
-                Intent send = new Intent(Intent.ACTION_SEND);
-                send.setType("application/json");
-                send.putExtra(Intent.EXTRA_STREAM, sharedUri);
-                send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                startActivity(Intent.createChooser(send, getString(R.string.ghostlock_export_share)));
-            });
-        } catch (Throwable t) {
-            appendLog("export offsets failed: " + t.getMessage());
-            ui.post(() -> toast(R.string.ghostlock_export_failed));
-        }
-    }
-
-    private void pickDocument(int requestCode) {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
-        startActivityForResult(intent, requestCode);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode != RESULT_OK || data == null) {
-            return;
-        }
-        if (requestCode == REQ_PICK_BOOT || requestCode == REQ_PICK_XBL) {
-            handleParsePick(requestCode, data);
-            return;
-        }
-        if (requestCode != REQ_IMPORT_OFFSETS) {
-            return;
-        }
-        Uri uri = data.getData();
-        if (uri == null) {
-            toast(R.string.ghostlock_import_failed);
-            return;
-        }
-        worker.execute(() -> {
-            File target = new File(getFilesDir(), OFFSETS_JSON);
-            try {
-                File tmp = new File(getFilesDir(), "offsets_import.tmp");
-                copyUriToFile(uri, tmp);
-                JSONArray imported;
-                try {
-                    imported = readOffsetsFile(tmp);
-                } finally {
-                    tmp.delete();
-                }
-                if (imported == null) {
-                    throw new IOException("not a valid offsets.json");
-                }
-                JSONArray existing = readOffsetsFile(target);
-                if (existing == null) {
-                    existing = new JSONArray();
-                }
-                final JSONArray existingEntries = existing;
-                final JSONArray freshEntries = imported;
-                List<String> overlaps = overlappingReleases(existingEntries, freshEntries);
-                if (overlaps.isEmpty()) {
-                    mergeAndSave(target, existingEntries, freshEntries, false);
-                    ui.post(this::finishImport);
-                } else {
-                    ui.post(() -> promptOverwrite(overlaps, existingEntries, freshEntries, target));
-                }
-            } catch (IOException e) {
-                appendLog("import offsets failed: " + e.getMessage());
-                ui.post(() -> {
-                    applyKernelStatus();
-                    toast(R.string.ghostlock_import_failed);
-                });
-            }
-        });
-    }
-
-    private void parseOffsets() {
-        new AlertDialog.Builder(this).setTitle(R.string.ghostlock_parse_title).setItems(new CharSequence[]{getString(R.string.ghostlock_parse_option_boot), getString(R.string.ghostlock_parse_option_boot_xbl),}, (dialog, which) -> {
-            switch (which) {
-                case 0:
-                    pickParseBoot(false);
-                    break;
-                case 1:
-                    pickParseBoot(true);
-                    break;
-            }
-        }).setNegativeButton(R.string.ghostlock_cancel, null).show();
-    }
-
-    private void promptParseUrl() {
-        String url = otaUrlInput.getText().toString().trim();
-        if (url.isEmpty() || !(url.startsWith("http://") || url.startsWith("https://"))) {
-            appendLog("error: invalid OTA URL: " + url);
-            toast(R.string.ghostlock_parse_failed_url);
-            return;
-        }
-        appendLog("parse OTA: " + url);
-        runExtract(url, null);
-    }
-
+    /** Selects the best available profile, in cache → APK → OTA order. */
     private void startAutomaticPrivilege() {
         if (running.get() || !automaticFlowRunning.compareAndSet(false, true)) {
             return;
         }
         setRunState(RunState.RUNNING);
+        String suppliedOta = otaUrlInput.getText().toString().trim();
+        if (!suppliedOta.isEmpty()) {
+            appendLog("custom full OTA URL will be used only after cached and APK profiles");
+        }
+        String kernelRelease = System.getProperty("os.version", "");
+        worker.execute(() -> {
+            GhostLockResolvedProfile cached = GhostLockProfileResolver.loadCached(this, kernelRelease);
+            GhostLockResolvedProfile builtin = cached == null
+                    ? GhostLockProfileResolver.loadBuiltin(this, kernelRelease)
+                    : null;
+            ui.post(() -> {
+                if (cached != null) {
+                    appendLog("profile source=cache; using cached profile before APK built-ins");
+                    startExploit(cached, ProfileFallback.APK_BUILTIN_THEN_OTA);
+                    return;
+                }
+                if (builtin != null) {
+                    if (isBuiltinOffsetBlocked(kernelRelease)) {
+                        appendLog("APK built-in profile previously failed; continuing to full OTA");
+                        requestAutomaticOta();
+                        return;
+                    }
+                    markBuiltinOffsetFailed(kernelRelease);
+                    appendLog("profile source=APK built-in; exact kernel release matched");
+                    startExploit(builtin, ProfileFallback.OTA);
+                    return;
+                }
+                appendLog("no cached or APK built-in profile matches; continuing to full OTA");
+                requestAutomaticOta();
+            });
+        });
+    }
+
+    private void requestAutomaticOta() {
+        autoRootButton.setText(R.string.ghostlock_action_resolving_ota);
         String suppliedOta = otaUrlInput.getText().toString().trim();
         if (!suppliedOta.isEmpty()) {
             if (!isValidOtaUrl(suppliedOta)) {
@@ -828,34 +432,10 @@ public class GhostLockActivity extends ComponentActivity {
                 toast(R.string.ghostlock_parse_failed_url);
                 return;
             }
-            appendLog("using supplied OTA URL");
-            runAutomaticOffsetExtract(suppliedOta);
+            appendLog("profile source=full OTA; using supplied URL as the final fallback");
+            runExtract(suppliedOta, true);
             return;
         }
-        String kernelRelease = System.getProperty("os.version", "");
-        if (importedOffsetsMatch(kernelRelease)) {
-            appendLog("cached offsets.json matches current kernel; reusing it before APK built-in offsets");
-            automaticFlowRunning.set(false);
-            startExploit();
-            return;
-        }
-        if (isBuiltInKernelSupported(kernelRelease)) {
-            if (isBuiltinOffsetBlocked(kernelRelease)) {
-                appendLog("APK built-in offsets were not confirmed successful previously; skipping them and continuing to OTA parsing");
-                requestAutomaticOta();
-                return;
-            }
-            markBuiltinOffsetFailed(kernelRelease);
-            appendLog("APK built-in support matched; starting without OTA parsing");
-            automaticFlowRunning.set(false);
-            startExploit(true);
-            return;
-        }
-        requestAutomaticOta();
-    }
-
-    private void requestAutomaticOta() {
-        autoRootButton.setText(R.string.ghostlock_action_resolving_ota);
         appendLog("requesting current full OTA through protocol v2");
         ghostLockOtaApi.resolve(result -> {
             if (!result.getSuccessful()) {
@@ -869,283 +449,63 @@ public class GhostLockActivity extends ComponentActivity {
             otaUrlInput.setText(url);
             appendLog("ROM V2 provider=" + result.getProvider());
             appendLog("ROM V2 OTA: " + url);
-            runAutomaticOffsetExtract(url);
+            runExtract(url, true);
         });
     }
 
-    private void pickParseBoot(boolean withXbl) {
-        parseWantsXbl = withXbl;
-        if (withXbl) {
-            toast(R.string.ghostlock_parse_pick_boot_hint);
-        }
-        pickDocument(REQ_PICK_BOOT);
-    }
-
-    private void handleParsePick(int requestCode, Intent data) {
-        Uri uri = data.getData();
-        if (uri == null) {
-            return;
-        }
-        worker.execute(() -> {
-            try {
-                File workDir = getFilesDir();
-                File boot = new File(workDir, "boot.img");
-                if (requestCode == REQ_PICK_BOOT) {
-                    copyUriToFile(uri, boot);
-                    appendLog("boot.img ready: " + boot.getAbsolutePath());
-                    if (parseWantsXbl) {
-                        ui.post(() -> {
-                            toast(R.string.ghostlock_parse_pick_xbl_hint);
-                            pickDocument(REQ_PICK_XBL);
-                        });
-                    } else {
-                        ui.post(() -> runExtract(boot.getAbsolutePath(), null));
-                    }
-                } else {
-                    File xbl = new File(workDir, "xbl_config.img");
-                    copyUriToFile(uri, xbl);
-                    appendLog("xbl_config.img ready: " + xbl.getAbsolutePath());
-                    ui.post(() -> runExtract(boot.getAbsolutePath(), xbl));
-                }
-            } catch (IOException e) {
-                appendLog("parse error: " + e.getMessage());
-            }
-        });
-    }
-
-    private void copyUriToFile(Uri uri, File target) throws IOException {
-        try (InputStream in = getContentResolver().openInputStream(uri); OutputStream out = new FileOutputStream(target, false)) {
-            if (in == null) {
-                throw new IOException("cannot open " + uri);
-            }
-            copyStream(in, out);
-        }
-    }
-
-    /**
-     * Parse an offsets file (single object or array) into an array of entries.
-     */
-    private JSONArray readOffsetsFile(File file) throws IOException {
-        if (!file.isFile()) {
-            return null;
-        }
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append('\n');
-            }
-        }
-        if (sb.toString().trim().isEmpty()) {
-            return null;
-        }
-        try {
-            Object value = new JSONTokener(sb.toString()).nextValue();
-            if (value instanceof JSONArray) {
-                return (JSONArray) value;
-            }
-            if (value instanceof JSONObject) {
-                JSONArray arr = new JSONArray();
-                arr.put(value);
-                return arr;
-            }
-        } catch (JSONException ignored) {
-        }
-        return null;
-    }
-
-    private Set<String> importedReleases(JSONArray entries) {
-        Set<String> releases = new HashSet<>();
-        for (int i = 0; i < entries.length(); i++) {
-            JSONObject entry = entries.optJSONObject(i);
-            if (entry != null) {
-                releases.add(entry.optString("release", ""));
-            }
-        }
-        return releases;
-    }
-
-    /**
-     * Releases already present in the store that the import also contains.
-     */
-    private List<String> overlappingReleases(JSONArray existing, JSONArray imported) {
-        Set<String> known = importedReleases(existing);
-        List<String> overlaps = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (int i = 0; i < imported.length(); i++) {
-            JSONObject entry = imported.optJSONObject(i);
-            if (entry == null) {
-                continue;
-            }
-            String release = entry.optString("release", "");
-            if (!release.isEmpty() && known.contains(release) && seen.add(release)) {
-                overlaps.add(release);
-            }
-        }
-        return overlaps;
-    }
-
-    /**
-     * Merge `imported` into `existing` and write the result back.  With
-     * overwrite=true imported entries replace stored entries with the same
-     * release; otherwise the stored values are kept.
-     */
-    private void mergeAndSave(File target, JSONArray existing, JSONArray imported, boolean overwrite) throws IOException {
-        Map<String, JSONObject> importedByRelease = new HashMap<>();
-        for (int i = 0; i < imported.length(); i++) {
-            JSONObject entry = imported.optJSONObject(i);
-            if (entry != null) {
-                importedByRelease.put(entry.optString("release", ""), entry);
-            }
-        }
-        Set<String> known = importedReleases(existing);
-        JSONArray merged = new JSONArray();
-        for (int i = 0; i < existing.length(); i++) {
-            JSONObject entry = existing.optJSONObject(i);
-            if (entry == null) {
-                continue;
-            }
-            if (overwrite && importedByRelease.containsKey(entry.optString("release", ""))) {
-                continue;
-            }
-            merged.put(entry);
-        }
-        for (int i = 0; i < imported.length(); i++) {
-            JSONObject entry = imported.optJSONObject(i);
-            if (entry == null) {
-                continue;
-            }
-            if (!overwrite && known.contains(entry.optString("release", ""))) {
-                continue;
-            }
-            merged.put(entry);
-        }
-        try (OutputStream out = new FileOutputStream(target, false)) {
-            out.write(merged.toString(2).getBytes(StandardCharsets.UTF_8));
-        } catch (JSONException e) {
-            throw new IOException("serialize offsets failed", e);
-        }
-    }
-
-    /** Ask whether stored OTA offsets should be replaced. */
-    private void promptOverwrite(List<String> replaced, JSONArray existing, JSONArray imported, File target) {
-        new AlertDialog.Builder(this).setTitle(R.string.ghostlock_overwrite_title).setMessage(getString(R.string.ghostlock_overwrite_message, String.join("\n", replaced))).setPositiveButton(R.string.ghostlock_overwrite_yes, (dialog, which) -> worker.execute(() -> {
-            try {
-                mergeAndSave(target, existing, imported, true);
-                ui.post(this::finishImport);
-            } catch (IOException e) {
-                appendLog("import offsets failed: " + e.getMessage());
-                ui.post(() -> {
-                    applyKernelStatus();
-                    toast(R.string.ghostlock_import_failed);
-                });
-            }
-        })).setNegativeButton(R.string.ghostlock_cancel, null).show();
-    }
-
-    private void finishImport() {
-        applyKernelStatus();
-        toast(R.string.ghostlock_import_success);
-        appendLog("offsets.json imported: " + new File(getFilesDir(), OFFSETS_JSON).getAbsolutePath());
-    }
-
-    /**
-     * Run the extractor on an OTA URL or local boot/xbl files; writes offsets.json on success.
-     */
-    private void runExtract(String input, File xblFile) {
-        runExtract(input, xblFile, false);
-    }
-
-    private void runExtract(String input, File xblFile, boolean automaticFlow) {
+    private void runExtract(String input, boolean automaticFlow) {
         worker.execute(() -> {
             int code = 1;
+            GhostLockResolvedProfile profile = null;
+            File parsed = new File(getFilesDir(), "ghostlock_profile_parse.tmp");
             try {
                 File binary = new File(getApplicationInfo().nativeLibraryDir, EXTRACT_NAME);
                 if (!binary.isFile()) {
                     throw new IOException("missing native binary: " + binary.getAbsolutePath());
                 }
                 File workDir = getFilesDir();
+                if (parsed.exists() && !parsed.delete()) {
+                    throw new IOException("cannot remove stale profile output");
+                }
                 List<String> args = new ArrayList<>();
                 args.add(input);
-                if (xblFile != null) {
-                    args.add("--xbl-config");
-                    args.add(xblFile.getAbsolutePath());
-                }
-                if (automaticFlow && detectOffsetPlatform() == OffsetPlatform.QUALCOMM) {
-                    args.add("--require-xbl");
-                }
                 args.add("--format");
-                args.add("json");
+                args.add("conf");
                 args.add("--out");
-                args.add(new File(workDir, "offsets_parse.tmp").getAbsolutePath());
+                args.add(parsed.getAbsolutePath());
                 args.add("--work-dir");
                 args.add(workDir.getAbsolutePath());
-                appendLog("extract: " + input);
+                appendLog("extracting upstream HOCON profile from full OTA: " + input);
                 code = runExtractProcess(binary, args, workDir);
                 appendLog("extract exit code=" + code);
-                File offsets = new File(workDir, OFFSETS_JSON);
-                File parsed = new File(workDir, "offsets_parse.tmp");
-                boolean ok = code == 0 && parsed.isFile();
-                Runnable uiResult = null;
-                try {
-                    if (ok) {
-                        JSONArray imported = readOffsetsFile(parsed);
-                        if (imported == null) {
-                            ok = false;
-                        } else {
-                            String currentRelease = System.getProperty("os.version", "");
-                            if (!importedReleases(imported).contains(currentRelease)) {
-                                throw new IOException("parsed OTA release does not match current kernel: " + currentRelease);
-                            }
-                            JSONArray existing = readOffsetsFile(offsets);
-                            if (existing == null) {
-                                existing = new JSONArray();
-                            }
-                            // OTA parsing is the sole source of runtime offsets.
-                            // Always persist the freshly parsed current-release entry,
-                            // then execute with that offsets.json immediately.
-                            mergeAndSave(offsets, existing, imported, true);
-                            uiResult = () -> {
-                                toast(R.string.ghostlock_parse_success);
-                                appendLog("OTA offsets written: " + offsets.getAbsolutePath());
-                                appendLog("starting with OTA-parsed offsets");
-                                startExploit();
-                            };
-                        }
-                    }
-                } catch (IOException e) {
-                    appendLog("merge offsets failed: " + e.getMessage());
-                    ok = false;
-                } finally {
-                    parsed.delete();
+                if (code == 0) {
+                    String release = System.getProperty("os.version", "");
+                    profile = GhostLockProfileResolver.parseAndCache(this, release, parsed);
+                    appendLog("validated and cached OTA profile for " + release);
                 }
-                final int extractCode = code;
-                final Runnable result = uiResult;
-                ui.post(() -> {
+            } catch (Throwable error) {
+                appendLog("profile extraction failed: " + error.getClass().getSimpleName()
+                        + ": " + error.getMessage());
+            } finally {
+                parsed.delete();
+            }
+            final int extractCode = code;
+            final GhostLockResolvedProfile resolved = profile;
+            ui.post(() -> {
+                if (resolved != null) {
+                    appendLog("profile source=OTA; starting upstream GhostLock core");
+                    toast(R.string.ghostlock_parse_success);
+                    startExploit(resolved, ProfileFallback.NONE);
+                } else {
                     if (automaticFlow) {
                         automaticFlowRunning.set(false);
                     }
-                    applyKernelStatus();
-                    if (result != null) {
-                        result.run();
-                    } else {
-                        if (automaticFlow) {
-                            setRunState(RunState.FAILED);
-                        }
-                        toast(parseFailureToast(extractCode));
-                    }
-                });
-            } catch (Throwable t) {
-                appendLog("error: " + t.getClass().getSimpleName() + ": " + t.getMessage());
-                if (automaticFlow) {
-                    automaticFlowRunning.set(false);
-                    ui.post(() -> setRunState(RunState.FAILED));
+                    setRunState(RunState.FAILED);
+                    toast(parseFailureToast(extractCode));
                 }
-                ui.post(() -> toast(R.string.ghostlock_parse_failed));
-            }
+            });
         });
     }
-
     /**
      * Map an extractor exit code to the user-facing failure message.
      * 3: pselect route infeasible, 4: missing required offsets, 5: kallsyms
@@ -1170,8 +530,6 @@ public class GhostLockActivity extends ComponentActivity {
         pb.directory(workDir);
         pb.redirectErrorStream(true);
         pb.environment().put("GHOSTLOCK_HOME", workDir.getAbsolutePath());
-        pb.environment().put("GHOSTLOCK_ACTIVATION_SCRIPT",
-                new File(workDir, ACTIVATION_SCRIPT).getAbsolutePath());
         pb.environment().put("TMPDIR", workDir.getAbsolutePath());
         pb.environment().put("HOME", workDir.getAbsolutePath());
         // Payload downloads and on-device analysis can take a while.
@@ -1209,16 +567,7 @@ public class GhostLockActivity extends ComponentActivity {
         return marketName != null ? marketName : Build.MANUFACTURER + " " + Build.MODEL;
     }
 
-    private void startExploit() {
-        startExploit(false);
-    }
-
-    private void startExploit(boolean otaFallbackAfterBuiltInFailure) {
-        if (!isKernelSupported()) {
-            appendLog("no upstream built-in or OTA-parsed offsets match the current kernel");
-            toast(R.string.ghostlock_parse_failed);
-            return;
-        }
+    private void startExploit(GhostLockResolvedProfile profile, ProfileFallback fallback) {
         if (!running.compareAndSet(false, true)) {
             return;
         }
@@ -1226,13 +575,13 @@ public class GhostLockActivity extends ComponentActivity {
         // keep the screen awake
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         appendLog("==== start ====");
-        appendLog("cpu pair: " + cpuPairLabels.get(cpuPairIndex));
+        appendLog("kernel profile source: " + profile.getSource().name());
         worker.execute(() -> {
             int code = 1;
             try {
                 File workDir = getFilesDir();
                 File binary = resolveBinary();
-                code = runBinaryWithRetry(binary, workDir);
+                code = runBinaryWithRetry(binary, workDir, profile.getBytes());
                 appendLog("exit code=" + code);
             } catch (Throwable t) {
                 appendLog("error: " + t.getClass().getSimpleName() + ": " + t.getMessage());
@@ -1242,17 +591,39 @@ public class GhostLockActivity extends ComponentActivity {
                     running.set(false);
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     if (finalCode == 0) {
-                        if (otaFallbackAfterBuiltInFailure) {
+                        if (profile.getSource() == GhostLockProfileSource.APK_BUILTIN) {
                             markBuiltinOffsetSuccess(System.getProperty("os.version", ""));
                         }
+                        automaticFlowRunning.set(false);
                         setRunState(RunState.SUCCESS);
-                    } else if (otaFallbackAfterBuiltInFailure
-                            && automaticFlowRunning.compareAndSet(false, true)) {
-                        appendLog("APK built-in offsets failed with exit code=" + finalCode
-                                + "; falling back to OTA parsing");
+                    } else if (fallback == ProfileFallback.APK_BUILTIN_THEN_OTA) {
+                        appendLog("cached profile failed with exit code=" + finalCode
+                                + "; trying the exact APK built-in profile next");
+                        setRunState(RunState.RUNNING);
+                        String release = System.getProperty("os.version", "");
+                        worker.execute(() -> {
+                            GhostLockResolvedProfile builtin = GhostLockProfileResolver.loadBuiltin(
+                                    GhostLockActivity.this, release);
+                            ui.post(() -> {
+                                if (builtin != null && !isBuiltinOffsetBlocked(release)) {
+                                    markBuiltinOffsetFailed(release);
+                                    appendLog("profile source=APK built-in; exact kernel release matched");
+                                    startExploit(builtin, ProfileFallback.OTA);
+                                } else {
+                                    appendLog(builtin == null
+                                            ? "no valid APK built-in profile; continuing to full OTA"
+                                            : "APK built-in profile previously failed; continuing to full OTA");
+                                    requestAutomaticOta();
+                                }
+                            });
+                        });
+                    } else if (fallback == ProfileFallback.OTA) {
+                        appendLog("APK built-in profile failed with exit code=" + finalCode
+                                + "; falling back to full OTA parsing");
                         setRunState(RunState.RUNNING);
                         requestAutomaticOta();
                     } else {
+                        automaticFlowRunning.set(false);
                         setRunState(RunState.FAILED);
                     }
                 });
@@ -1275,61 +646,65 @@ public class GhostLockActivity extends ComponentActivity {
         throw new IOException("missing native binary: " + packaged.getAbsolutePath());
     }
 
-    private File prepareActivationScript(File workDir) throws IOException {
-        File out = new File(workDir, ACTIVATION_SCRIPT);
-        try (InputStream in = getAssets().open("yhroot_ksu_activate.sh");
-             OutputStream output = new FileOutputStream(out, false)) {
-            copyStream(in, output);
+    private String prepareSelectedKsud(File workDir) throws IOException {
+        String managerPackage = KernelSuManagerSelection.INSTANCE.selectedPackage(this);
+        File ksud = new File(workDir, "ksud");
+        if (!KernelSuManagerSelection.INSTANCE.copySelectedKsud(this, ksud)) {
+            throw new IOException("selected KernelSU manager has no accessible libksud.so: " + managerPackage);
         }
         try {
-            Os.chmod(out.getAbsolutePath(), 448);
-        } catch (ErrnoException e) {
-            throw new IOException("chmod shared activation script failed", e);
+            Os.chmod(ksud.getAbsolutePath(), 448);
+        } catch (ErrnoException error) {
+            throw new IOException("cannot make selected ksud executable", error);
         }
-        return out;
+        appendLog("staged selected manager ksud: " + managerPackage);
+        return managerPackage;
     }
 
-    private int runBinary(File binary, File workDir) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath());
+    private int runBinary(File binary, File workDir, byte[] profileBlob, String managerPackage)
+            throws IOException, InterruptedException {
+        List<String> command = new ArrayList<>();
+        command.add(binary.getAbsolutePath());
+        command.add("--ghostlock-app-call");
+        ProcessBuilder pb = new ProcessBuilder(command);
         pb.directory(workDir);
         pb.redirectErrorStream(true);
         pb.environment().put("GHOSTLOCK_HOME", workDir.getAbsolutePath());
-        pb.environment().put("GHOSTLOCK_ACTIVATION_SCRIPT",
-                new File(workDir, ACTIVATION_SCRIPT).getAbsolutePath());
-        String managerPackage = KernelSuManagerSelection.INSTANCE.selectedPackage(this);
+        pb.environment().put("GHOSTLOCK_KSU_LOG", new File(workDir, ".ghostlock_ksu.log").getAbsolutePath());
         pb.environment().put("YHROOT_KSU_PACKAGE", managerPackage);
-        appendLog("selected KernelSU manager package: " + managerPackage);
         pb.environment().put("TMPDIR", workDir.getAbsolutePath());
         pb.environment().put("HOME", workDir.getAbsolutePath());
-        pb.environment().put("YHROOT_CLEANUP_DELAY", "5");
-        int[] pair = cpuPairs.get(cpuPairIndex);
-        if (pair[0] != 0 || pair[1] != 1) {
-            pb.environment().put("GHOSTLOCK_CORE", String.valueOf(pair[0]));
-            pb.environment().put("GHOSTLOCK_CONSUMER_CORE", String.valueOf(pair[1]));
-        }
-        return runProcess(pb);
+        appendLog("selected KernelSU manager package: " + managerPackage);
+        int code = runProcess(pb, profileBlob, 300);
+        appendKernelSuLog(new File(workDir, ".ghostlock_ksu.log"));
+        return code;
     }
 
-    /**
-     * A futex/heap-spray route can lose a race or be killed under memory
-     * pressure. Retry once in a fresh native process while keeping OTA
-     * offsets and the selected CPU pair unchanged.
-     */
-    private int runBinaryWithRetry(File binary, File workDir) throws IOException, InterruptedException {
+    private void appendKernelSuLog(File logFile) {
+        if (!logFile.isFile()) return;
+        appendLog("==== upstream KernelSU handoff log ====");
+        try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                appendLog("[ksu] " + line);
+            }
+        } catch (IOException error) {
+            appendLog("could not read KernelSU handoff log: " + error.getMessage());
+        }
+    }
+
+    /** Retry once in a fresh upstream process, preserving the resolved profile. */
+    private int runBinaryWithRetry(File binary, File workDir, byte[] profileBlob)
+            throws IOException, InterruptedException {
+        String managerPackage = prepareSelectedKsud(workDir);
         int code = 1;
         for (int attempt = 1; attempt <= MAX_NATIVE_ATTEMPTS; attempt++) {
-            File activationLog = new File(workDir, ".ghostlock_ksu.log");
-            if (activationLog.isFile() && !activationLog.delete()) {
-                appendLog("warning: stale activation log could not be removed");
+            File handoffLog = new File(workDir, ".ghostlock_ksu.log");
+            if (handoffLog.isFile() && !handoffLog.delete()) {
+                appendLog("warning: stale KernelSU handoff log could not be removed");
             }
-            File activationStatus = new File(workDir, ACTIVATION_STATUS);
-            if (activationStatus.isFile() && !activationStatus.delete()) {
-                appendLog("warning: stale activation status could not be removed");
-            }
-            File activationScript = prepareActivationScript(workDir);
-            appendLog("selected KernelSU activation script ready: " + activationScript.getName());
             appendLog("native attempt " + attempt + "/" + MAX_NATIVE_ATTEMPTS);
-            code = runBinary(binary, workDir);
+            code = runBinary(binary, workDir, profileBlob, managerPackage);
             if (code == 0) {
                 return 0;
             }
@@ -1340,12 +715,8 @@ public class GhostLockActivity extends ComponentActivity {
                     + "; retrying in a fresh process");
             Thread.sleep(NATIVE_RETRY_DELAY_MS);
         }
-        if (code == EXIT_ACTIVATION_FAILED) {
-            appendLog("KernelSU activation did not complete; result is not marked successful");
-        }
         return code;
     }
-
     private static boolean isRetryableNativeExit(int code) {
         return code == 1 || code == 137 || code == -1;
     }
@@ -1361,7 +732,18 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     private int runProcess(ProcessBuilder pb, long timeoutSeconds) throws IOException, InterruptedException {
+        return runProcess(pb, null, timeoutSeconds);
+    }
+
+    private int runProcess(ProcessBuilder pb, byte[] stdin, long timeoutSeconds)
+            throws IOException, InterruptedException {
         Process process = pb.start();
+        try (OutputStream stream = process.getOutputStream()) {
+            if (stdin != null) {
+                stream.write(stdin);
+                stream.flush();
+            }
+        }
         Thread reader = new Thread(() -> {
             try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -1442,5 +824,11 @@ public class GhostLockActivity extends ComponentActivity {
 
     private enum RunState {
         IDLE, RUNNING, SUCCESS, FAILED
+    }
+
+    private enum ProfileFallback {
+        NONE,
+        APK_BUILTIN_THEN_OTA,
+        OTA,
     }
 }

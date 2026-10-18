@@ -245,27 +245,27 @@ extern uint32_t libcxx_ko_target_off;
 asm(
     ".section .rodata\n"
     ".global dfroot_ko_12_5_10_start\n.global dfroot_ko_12_5_10_end\n"
-    "dfroot_ko_12_5_10_start:\n.incbin \"ko/dfroot-android12-5.10.ko\"\ndfroot_ko_12_5_10_end:\n"
+    "dfroot_ko_12_5_10_start:\n.incbin \"" DFROOT_KO_DIR "/dfroot-android12-5.10.ko\"\ndfroot_ko_12_5_10_end:\n"
     ".global dfroot_ko_13_5_10_start\n.global dfroot_ko_13_5_10_end\n"
-    "dfroot_ko_13_5_10_start:\n.incbin \"ko/dfroot-android13-5.10.ko\"\ndfroot_ko_13_5_10_end:\n"
+    "dfroot_ko_13_5_10_start:\n.incbin \"" DFROOT_KO_DIR "/dfroot-android13-5.10.ko\"\ndfroot_ko_13_5_10_end:\n"
     ".global dfroot_ko_13_5_15_start\n.global dfroot_ko_13_5_15_end\n"
-    "dfroot_ko_13_5_15_start:\n.incbin \"ko/dfroot-android13-5.15.ko\"\ndfroot_ko_13_5_15_end:\n"
+    "dfroot_ko_13_5_15_start:\n.incbin \"" DFROOT_KO_DIR "/dfroot-android13-5.15.ko\"\ndfroot_ko_13_5_15_end:\n"
     ".global dfroot_ko_14_5_15_start\n.global dfroot_ko_14_5_15_end\n"
-    "dfroot_ko_14_5_15_start:\n.incbin \"ko/dfroot-android14-5.15.ko\"\ndfroot_ko_14_5_15_end:\n"
+    "dfroot_ko_14_5_15_start:\n.incbin \"" DFROOT_KO_DIR "/dfroot-android14-5.15.ko\"\ndfroot_ko_14_5_15_end:\n"
     ".global dfroot_ko_14_6_1_start\n.global dfroot_ko_14_6_1_end\n"
-    "dfroot_ko_14_6_1_start:\n.incbin \"ko/dfroot-android14-6.1.ko\"\ndfroot_ko_14_6_1_end:\n"
+    "dfroot_ko_14_6_1_start:\n.incbin \"" DFROOT_KO_DIR "/dfroot-android14-6.1.ko\"\ndfroot_ko_14_6_1_end:\n"
     ".global dfroot_ko_15_6_6_start\n.global dfroot_ko_15_6_6_end\n"
-    "dfroot_ko_15_6_6_start:\n.incbin \"ko/dfroot-android15-6.6.ko\"\ndfroot_ko_15_6_6_end:\n"
+    "dfroot_ko_15_6_6_start:\n.incbin \"" DFROOT_KO_DIR "/dfroot-android15-6.6.ko\"\ndfroot_ko_15_6_6_end:\n"
     ".global dfroot_ko_16_6_12_start\n.global dfroot_ko_16_6_12_end\n"
-    "dfroot_ko_16_6_12_start:\n.incbin \"ko/dfroot-android16-6.12.ko\"\ndfroot_ko_16_6_12_end:\n"
+    "dfroot_ko_16_6_12_start:\n.incbin \"" DFROOT_KO_DIR "/dfroot-android16-6.12.ko\"\ndfroot_ko_16_6_12_end:\n"
     ".global dfroot_ko_17_6_18_start\n.global dfroot_ko_17_6_18_end\n"
-    "dfroot_ko_17_6_18_start:\n.incbin \"ko/dfroot-android17-6.18.ko\"\ndfroot_ko_17_6_18_end:\n"
+    "dfroot_ko_17_6_18_start:\n.incbin \"" DFROOT_KO_DIR "/dfroot-android17-6.18.ko\"\ndfroot_ko_17_6_18_end:\n"
 );
 
 asm(
     ".section .rodata\n"
     ".global splice_helper_start\n.global splice_helper_end\n"
-    "splice_helper_start:\n.incbin \"splicehelper\"\nsplice_helper_end:\n"
+    "splice_helper_start:\n.incbin \"" DFROOT_SPLICEHELPER_PATH "\"\nsplice_helper_end:\n"
 );
 
 extern char dfroot_ko_12_5_10_start[], dfroot_ko_12_5_10_end[];
@@ -578,8 +578,10 @@ static int exploit(void) {
         { "/dev/dfm4",  "bootstrap: disabling ksu modules",                 -1 },
         { "/dev/dfme1", "bootstrap: ERROR - disable modules failed",         1 },
         { "/dev/dfm5",  "bootstrap: starting SU daemon",                    -1 },
-        { "/dev/dfm6",  "ksud start: SUCCESS",                               0 },
-        { "/dev/dfme2", "ksud start: ERROR - ksud nonzero exit",             1 },
+        { "/dev/dfm6",  "ksud late-load: SUCCESS",                         -1 },
+        { "/dev/dfme2", "ksud late-load: ERROR - ksud nonzero exit",         1 },
+        { "/dev/dfm7",  "SELinux policy reload: SUCCESS",                    0 },
+        { "/dev/dfme3", "WARNING - KernelSU active; SELinux policy reload failed", 0 },
     };
     int seen[sizeof(markers)/sizeof(markers[0])] = {0};
 

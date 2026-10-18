@@ -138,17 +138,6 @@ echo "[*] kernelsu.ko loaded; root pid=$$ uid=$(id -u)" >>"$LOG"
 echo 0 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
 echo "[*] setenforce 0 rc=$?" >>"$LOG"
 
-if [ "${YHROOT_DIRTYFRAG:-0}" = "1" ]; then
-  # The DirtyFrag bootstrap is the root hand-off process. A synchronous
-  # policy reload here can invalidate its SELinux SID and terminate the
-  # shell after KernelSU is already active. Keep this cleanup best-effort and
-  # report the real result: KernelSU is active, SELinux remains permissive.
-  echo '[+] KernelSU activation complete; DirtyFrag policy reload skipped to preserve bootstrap' | tee -a "$LOG"
-  echo '[!] SELinux policy remains permissive in DirtyFrag mode' | tee -a "$LOG"
-  rm -f "$SCRIPT_PATH" 2>/dev/null
-  exit 0
-fi
-
 FIXUP_RC=1
 for i in $(seq 1 10); do
   echo "[*] fixup: attempt $i" >>"$LOG"

@@ -9,12 +9,16 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 data class AnnouncementInfo(
     val version: String,
@@ -66,6 +70,11 @@ sealed interface ChannelVerificationResult {
 class HttpStartupVerificationApi(context: Context) {
     private val appContext = context.applicationContext
 
+    private companion object {
+        private const val STATISTICS_REPORT_SECRET = "1c100d799f0a33b7b6bea3d0c87d029942aed0d76068513727164b455707ea70"
+        private val RUN_REPORTED_THIS_PROCESS = AtomicBoolean(false)
+    }
+
     suspend fun verifyStartup(): StartupVerificationResult = withContext(Dispatchers.IO) {
         val endpoint = BuildConfig.SERVER_PROTOCOL_V2_ENDPOINT.trim()
         val moduleId = BuildConfig.SERVER_MODULE_ID.trim()
@@ -76,7 +85,23 @@ class HttpStartupVerificationApi(context: Context) {
             return@withContext StartupVerificationResult.EndpointNotConfigured
         }
 
-        runCatching {
+        verifyStartupInternal(
+            endpoint = endpoint,
+            moduleId = moduleId,
+            serverPublicKey = serverPublicKey,
+            serverKeyId = serverKeyId,
+            allowIdentityRecovery = true,
+        )
+    }
+
+    private fun verifyStartupInternal(
+        endpoint: String,
+        moduleId: String,
+        serverPublicKey: String,
+        serverKeyId: String,
+        allowIdentityRecovery: Boolean,
+    ): StartupVerificationResult {
+        return try {
             OfficialAppSignature.requireOfficial(appContext)
             val proof = createProof("bootstrap", "")
             val response = postForm(
@@ -86,15 +111,94 @@ class HttpStartupVerificationApi(context: Context) {
             if (response.code !in 200..299) {
                 throw VerificationException(httpFailureMessage(response.code))
             }
-            parseSignedStartupResponse(
+            val result = parseSignedStartupResponse(
                 response.body,
                 proof,
                 moduleId,
                 serverPublicKey,
                 serverKeyId,
             )
-        }.getOrElse { error ->
+            if (result is StartupVerificationResult.Success && result.verification.authorized) {
+                reportAssistantRunOnce(endpoint, moduleId, proof.deviceId)
+            }
+            result
+        } catch (error: ClientIdentity.IdentityException) {
+            if (!allowIdentityRecovery) {
+                StartupVerificationResult.Failure(error.toSafeMessage())
+            } else {
+                runCatching {
+                    // Keep the device ID so an already authorized device can
+                    // follow the normal server-side key rebind flow.  Only
+                    // the broken local signing key is replaced.
+                    ClientIdentity.resetSigningIdentity(appContext)
+                    verifyStartupInternal(
+                        endpoint = endpoint,
+                        moduleId = moduleId,
+                        serverPublicKey = serverPublicKey,
+                        serverKeyId = serverKeyId,
+                        allowIdentityRecovery = false,
+                    )
+                }.getOrElse { recoveryError ->
+                    StartupVerificationResult.Failure(recoveryError.toSafeMessage())
+                }
+            }
+        } catch (error: Throwable) {
             StartupVerificationResult.Failure(error.toSafeMessage())
+        }
+    }
+
+    private fun reportAssistantRunOnce(endpoint: String, moduleId: String, deviceId: String) {
+        if (!RUN_REPORTED_THIS_PROCESS.compareAndSet(false, true)) return
+
+        runCatching {
+            val signature = hmacSha256Hex(
+                STATISTICS_REPORT_SECRET,
+                "$moduleId\n$deviceId",
+            )
+            val url = appendAction(endpoint, "run") +
+                "&id=${encodeForm(moduleId)}" +
+                "&devId=${encodeForm(deviceId)}" +
+                "&sig=$signature"
+            val target = URL(url)
+            if (!target.protocol.equals("https", ignoreCase = true)) return
+
+            val connection = target.openConnection() as HttpURLConnection
+            try {
+                connection.requestMethod = "GET"
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = CONNECT_TIMEOUT_MS
+                connection.readTimeout = READ_TIMEOUT_MS
+                connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty(
+                    "User-Agent",
+                    "YueHongPrivilegeAssistant/${BuildConfig.VERSION_NAME}",
+                )
+                val responseCode = connection.responseCode
+                val stream = if (responseCode in 200..299) {
+                    connection.inputStream
+                } else {
+                    connection.errorStream
+                }
+                val body = stream?.readUtf8Limited().orEmpty()
+                responseCode in 200..299 &&
+                    runCatching { JSONObject(body).optString("status") == "success" }
+                        .getOrDefault(false)
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+
+    private fun hmacSha256Hex(secret: String, message: String): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(secret.toByteArray(StandardCharsets.UTF_8), "HmacSHA256"))
+        val alphabet = "0123456789abcdef"
+        return buildString(64) {
+            mac.doFinal(message.toByteArray(StandardCharsets.UTF_8)).forEach { byte ->
+                val value = byte.toInt() and 0xff
+                append(alphabet[value ushr 4])
+                append(alphabet[value and 0x0f])
+            }
         }
     }
 
@@ -189,7 +293,9 @@ class HttpStartupVerificationApi(context: Context) {
         expectedPublicKey: String,
         expectedKeyId: String,
     ): StartupVerificationResult {
-        val envelope = JSONObject(body)
+        val envelope = runCatching { JSONObject(body) }.getOrElse {
+            throw VerificationException("服务器响应格式无效")
+        }
         if (envelope.optInt("protocol") != 2 ||
             envelope.optString("key_id") != expectedKeyId) {
             throw VerificationException("服务器签名身份不匹配")
@@ -335,8 +441,12 @@ class HttpStartupVerificationApi(context: Context) {
 
     private fun Throwable.toSafeMessage(): String = when (this) {
         is SecurityException -> message.orEmpty().ifBlank { "客户端安全验证失败" }
+        is ClientIdentity.IdentityException -> message.orEmpty().ifBlank {
+            "本地设备身份不可用，请重试"
+        }
         is VerificationException -> message.orEmpty().ifBlank { "安全验证失败" }
-        else -> "无法连接验证服务器，请检查网络后重试"
+        is IOException -> "无法连接验证服务器，请检查网络后重试"
+        else -> "启动验证失败，请重试"
     }
 
     private fun httpFailureMessage(code: Int): String = when (code) {

@@ -3,7 +3,7 @@
 月虹提权助手是一个内置 Stellar Manager、Server、API 与 DirtyFrag v1.16 的 Android 提权工作台。应用不再依赖外部 Shizuku 或外部 Stellar 管理器，可直接在应用内通过 Android 无线调试完成 Stellar 自激活，再使用 `Stellar.newProcess()` 执行命令；DirtyFrag 作为独立的 Android 12+ 模式运行。
 
 - 应用 ID：`roro.stellar.yuehong`
-- 版本：`v1.5.7`（`versionCode 157`）
+- 版本：`v1.5.9`（`versionCode 159`）
 - 最低系统：Android 9（API 28）
 - 目标系统：Android API 37
 - ABI：`arm64-v8a`
@@ -94,8 +94,8 @@ Windows 中文路径下请使用工程自带脚本。脚本会创建一个仅在
 Release 签名读取根目录下由构建者自行创建的 `keystore.properties`；公开源码不附带任何发行密钥或签名属性。主要产物会同步到：
 
 ```text
-out/apk/月虹提权助手-v1.5.7-release.apk
-out/mapping/mapping-v1.5.7.txt
+out/apk/月虹提权助手-v1.5.9-release.apk
+out/mapping/mapping-v1.5.9.txt
 ```
 
 ## 安全边界
@@ -123,7 +123,7 @@ out/mapping/mapping-v1.5.7.txt
 
 启动验证与频道授权通过后，应用先进入提权模式选择页：
 
-- **内核 6.1 / 6.6 / 6.12 · GhostLock**：独立运行，按精确 `uname -r` 使用内置或导入 offsets；支持 `boot.img`、骁龙 `boot.img + xbl_config.img`、天玑 `boot.img` 与完整 OTA 链接。
+- **内核 6.1 / 6.6 / 6.12 · GhostLock**：直接运行同步的上游核心，按精确 `uname -r` 依次使用偏移缓存、APK 内置 profile、完整 OTA 提取；内核接管由 GhostLock 核心完成，并使用助手所选的 KernelSU 管理器。
 - **通用提权助手 · Stellar**：使用 APK 内置提权文件手动选择、本地文件导入、自激活和命令控制台。
 - **DirtyFrag v1.16**：入口始终显示，只有 Android 12+ 设备可以进入；使用 DirtyFrag 上游八个 KMI 模块构建产物，获取临时 Root 后由 bootstrap 直接把所选包名传给管理器的 `libksud.so`。
 

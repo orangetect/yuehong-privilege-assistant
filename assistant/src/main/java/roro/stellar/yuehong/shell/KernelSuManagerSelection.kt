@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Build
 import java.io.File
+import java.io.FileOutputStream
 import java.util.Locale
 import java.util.zip.ZipFile
 
@@ -70,6 +71,33 @@ object KernelSuManagerSelection {
                 .commit()
         }
         return normalized
+    }
+
+    /** Copies libksud.so from the selected manager, including split APK installs. */
+    fun copySelectedKsud(context: Context, destination: File): Boolean {
+        val selected = selectedPackage(context)
+        val manager = scan(context).firstOrNull { it.packageName == selected } ?: return false
+        val libraryPath = manager.libKsudPath
+        val split = libraryPath.indexOf("!/")
+        val parent = destination.parentFile ?: return false
+        if (!parent.isDirectory && !parent.mkdirs()) return false
+        return runCatching {
+            if (split < 0) {
+                File(libraryPath).inputStream().use { input ->
+                    FileOutputStream(destination, false).use { output -> input.copyTo(output) }
+                }
+            } else {
+                val apk = libraryPath.substring(0, split)
+                val entryName = libraryPath.substring(split + 2)
+                ZipFile(apk).use { zip ->
+                    val entry = zip.getEntry(entryName) ?: return false
+                    zip.getInputStream(entry).use { input ->
+                        FileOutputStream(destination, false).use { output -> input.copyTo(output) }
+                    }
+                }
+            }
+            destination.isFile && destination.length() > 0L
+        }.getOrDefault(false)
     }
 
     /**

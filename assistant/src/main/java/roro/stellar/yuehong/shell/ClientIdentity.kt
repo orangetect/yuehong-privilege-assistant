@@ -34,9 +34,25 @@ internal object ClientIdentity {
             PREFERENCES_NAME,
             Context.MODE_PRIVATE,
         )
-        preferences.getString(DEVICE_ID_KEY, null)
-            ?.takeIf(::isValid)
-            ?.let { return it }
+        val existing = preferences.getString(DEVICE_ID_KEY, null)
+        existing?.takeIf(::isValid)?.let { return it }
+
+        // The device ID and signing seed form one identity.  If the ID was
+        // truncated or otherwise damaged, keeping the old seed would reuse
+        // one public key under a new ID and the server would reject it as a
+        // key conflict.  Drop the protected seed as part of repairing the
+        // pair; the caller will create a fresh key below.
+        if (existing != null) {
+            check(preferences.edit()
+                .remove(SIGNING_SEED_KEY)
+                .remove(ENCRYPTED_SIGNING_SEED_KEY)
+                .remove(SIGNING_SEED_IV_KEY)
+                .commit()
+            ) {
+                "Unable to repair DMKPZ client identity"
+            }
+            deleteWrappingKey()
+        }
 
         val random = ByteArray(DEVICE_ID_BYTES).also(SecureRandom()::nextBytes)
         val deviceId = Base64.encodeToString(
@@ -51,41 +67,48 @@ internal object ClientIdentity {
 
     @Synchronized
     fun loadOrCreateSigningIdentity(context: Context): SigningIdentity {
-        val preferences = context.applicationContext.getSharedPreferences(
-            PREFERENCES_NAME,
-            Context.MODE_PRIVATE,
-        )
-        val deviceId = loadOrCreate(context)
-        val seed = loadOrCreateProtectedSeed(preferences)
+        try {
+            val preferences = context.applicationContext.getSharedPreferences(
+                PREFERENCES_NAME,
+                Context.MODE_PRIVATE,
+            )
+            val deviceId = loadOrCreate(context)
+            val seed = loadOrCreateProtectedSeed(preferences)
 
-        val privateKey = Ed25519PrivateKeyParameters(seed, 0)
-        seed.fill(0)
-        return SigningIdentity(
-            deviceId = deviceId,
-            privateKey = privateKey,
-            publicKey = privateKey.generatePublicKey().encoded,
-        )
+            val privateKey = Ed25519PrivateKeyParameters(seed, 0)
+            seed.fill(0)
+            return SigningIdentity(
+                deviceId = deviceId,
+                privateKey = privateKey,
+                publicKey = privateKey.generatePublicKey().encoded,
+            )
+        } catch (error: Exception) {
+            throw IdentityException("本地设备身份数据不可用", error)
+        }
     }
 
     @Synchronized
     fun resetSigningIdentity(context: Context) {
-        val preferences = context.applicationContext.getSharedPreferences(
-            PREFERENCES_NAME,
-            Context.MODE_PRIVATE,
-        )
-        check(preferences.edit()
-            .remove(SIGNING_SEED_KEY)
-            .remove(ENCRYPTED_SIGNING_SEED_KEY)
-            .remove(SIGNING_SEED_IV_KEY)
-            .commit()
-        ) {
-            "Unable to reset protocol v2 signing identity"
-        }
-        val keyStore = androidKeyStore()
-        if (keyStore.containsAlias(KEYSTORE_ALIAS)) {
-            keyStore.deleteEntry(KEYSTORE_ALIAS)
+        try {
+            val preferences = context.applicationContext.getSharedPreferences(
+                PREFERENCES_NAME,
+                Context.MODE_PRIVATE,
+            )
+            check(preferences.edit()
+                .remove(SIGNING_SEED_KEY)
+                .remove(ENCRYPTED_SIGNING_SEED_KEY)
+                .remove(SIGNING_SEED_IV_KEY)
+                .commit()
+            ) {
+                "Unable to reset protocol v2 signing identity"
+            }
+            deleteWrappingKey()
+        } catch (error: Exception) {
+            throw IdentityException("无法重置本地设备身份", error)
         }
     }
+
+    class IdentityException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
     private fun loadOrCreateProtectedSeed(
         preferences: android.content.SharedPreferences,
@@ -154,6 +177,13 @@ internal object ClientIdentity {
 
     private fun androidKeyStore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply {
         load(null)
+    }
+
+    private fun deleteWrappingKey() {
+        val keyStore = androidKeyStore()
+        if (keyStore.containsAlias(KEYSTORE_ALIAS)) {
+            keyStore.deleteEntry(KEYSTORE_ALIAS)
+        }
     }
 
     private fun isValid(value: String): Boolean =

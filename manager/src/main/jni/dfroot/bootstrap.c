@@ -1,5 +1,7 @@
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -166,6 +168,44 @@ static int run_ctx(const char *ctx, char *const argv[])
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
+static int run_ctx_timeout(const char *ctx, char *const argv[], unsigned timeout_seconds)
+{
+    pid_t pid = fork();
+    if (pid < 0)
+        return -1;
+    if (pid == 0) {
+        if (ctx) {
+            int fd = open("/proc/self/attr/exec", O_WRONLY);
+            if (fd < 0)
+                _exit(126);
+            ssize_t written = write(fd, ctx, strlen(ctx));
+            close(fd);
+            if (written != (ssize_t)strlen(ctx))
+                _exit(126);
+        }
+        execv(argv[0], argv);
+        _exit(127);
+    }
+
+    int status;
+    unsigned attempts = timeout_seconds * 100;
+    for (unsigned i = 0; i < attempts; i++) {
+        pid_t result = waitpid(pid, &status, WNOHANG);
+        if (result == pid)
+            return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+        if (result < 0 && errno != EINTR) {
+            kill(pid, SIGKILL);
+            while (waitpid(pid, &status, 0) < 0 && errno == EINTR) { }
+            return -1;
+        }
+        usleep(10000);
+    }
+
+    kill(pid, SIGKILL);
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) { }
+    return -1;
+}
+
 static void touch(const char *path)
 {
     int fd = open(path, O_CREAT | O_WRONLY, 0666);
@@ -235,6 +275,13 @@ int main(void)
         }
         if (run_ctx(NULL, (char *[]){ KSUD_STAGE, "late-load", "--package-name", su_manager, NULL }) == 0) {
             touch("/dev/dfm6");
+            if (run_ctx_timeout("u:r:init:s0", (char *[]){
+                    "/system/bin/load_policy", "/sys/fs/selinux/policy", NULL
+                }, 8) == 0) {
+                touch("/dev/dfm7");
+            } else {
+                touch("/dev/dfme3");
+            }
             if (soft_reboot) {
                 while (late_load_running()) sleep(1);
                 run_ctx("u:r:ksu:s0", (char *[]){ KSUD, "soft-reboot", NULL });

@@ -20,6 +20,13 @@ def buildConfigString = { String value ->
 android {
     namespace 'roro.stellar.yuehong'
 
+    sourceSets {
+        main {
+            java.srcDirs += [ '../third_party/ghostlock/profile-core/src/main/kotlin' ]
+            assets.srcDirs += [ '../third_party/ghostlock/app/src/main/assets' ]
+        }
+    }
+
     defaultConfig {
         minSdk 28
 
@@ -63,5 +70,6 @@ dependencies {
     implementation managerLibs.bundles.core
     implementation platform(managerLibs.composeBom)
     implementation managerLibs.bundles.composeUi
+    implementation 'com.typesafe:config:1.4.3'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.80.2'
 }
