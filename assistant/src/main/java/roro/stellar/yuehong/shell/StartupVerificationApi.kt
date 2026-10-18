@@ -70,11 +70,6 @@ sealed interface ChannelVerificationResult {
 class HttpStartupVerificationApi(context: Context) {
     private val appContext = context.applicationContext
 
-    private companion object {
-        private const val STATISTICS_REPORT_SECRET = "1c100d799f0a33b7b6bea3d0c87d029942aed0d76068513727164b455707ea70"
-        private val RUN_REPORTED_THIS_PROCESS = AtomicBoolean(false)
-    }
-
     suspend fun verifyStartup(): StartupVerificationResult = withContext(Dispatchers.IO) {
         val endpoint = BuildConfig.SERVER_PROTOCOL_V2_ENDPOINT.trim()
         val moduleId = BuildConfig.SERVER_MODULE_ID.trim()
@@ -478,6 +473,8 @@ class HttpStartupVerificationApi(context: Context) {
     private class VerificationException(message: String) : Exception(message)
 
     private companion object {
+        private const val STATISTICS_REPORT_SECRET = "1c100d799f0a33b7b6bea3d0c87d029942aed0d76068513727164b455707ea70"
+        private val RUN_REPORTED_THIS_PROCESS = AtomicBoolean(false)
         private const val CONNECT_TIMEOUT_MS = 10_000
         private const val READ_TIMEOUT_MS = 15_000
         private const val MAX_RESPONSE_BYTES = 512 * 1024
