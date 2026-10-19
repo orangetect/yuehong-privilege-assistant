@@ -40,7 +40,7 @@
     <string name="ghostlock_cpu_pair_label">CPU cores</string>
     <string-array name="ghostlock_local_image_sources">
         <item>payload.bin</item>
-        <item>boot.img</item>
+        <item>boot.img (optionally select xbl_config.img, uefi.img, etc.)</item>
     </string-array>
     <string-array name="ghostlock_local_image_attachments">
         <item>Parse boot.img only</item>

@@ -40,7 +40,7 @@
     <string name="ghostlock_cpu_pair_label">CPU 核心对</string>
     <string-array name="ghostlock_local_image_sources">
         <item>payload.bin</item>
-        <item>boot.img</item>
+        <item>boot.img（可同时多选 xbl_config.img、uefi.img 等）</item>
     </string-array>
     <string-array name="ghostlock_local_image_attachments">
         <item>仅解析 boot.img</item>

@@ -224,7 +224,7 @@ namespace ghostlock::attack {
     }
 
     void write_root_script(void) {
-        std::string script(12288, '\0');
+        std::string script(16384, '\0');
         support::UniqueFd sfd(
             open((config::runtime_config_snapshot().root_script_path.c_str()), O_WRONLY | O_CREAT | O_TRUNC, 0755));
         if (!sfd.valid()) {
@@ -244,11 +244,23 @@ namespace ghostlock::attack {
             "echo \"[*] root script start uid=$(id -u) euid=$(id -u)\" >\"$LOG\"\n"
             "chmod 644 \"$LOG\" 2>/dev/null\n"
             "echo \"[*] seccomp=$(grep Seccomp /proc/self/status 2>/dev/null | tr '\\n' ' ')\" >>\"$LOG\"\n"
-            "if [ -n \"$MANAGER_PACKAGE\" ] && [ ! -x \"$KSUD\" ]; then\n"
-            "  echo '[!] selected manager ksud was not staged' >>\"$LOG\"\n"
-            "  exit 1\n"
-            "fi\n"
             "echo \"[*] selected manager=$MANAGER_PACKAGE\" >>\"$LOG\"\n"
+            "if [ -n \"$MANAGER_PACKAGE\" ] && [ ! -x \"$KSUD\" ]; then\n"
+            "  case \"$MANAGER_PACKAGE\" in\n"
+            "    me.weishu.kernelsu|me.weishu.kernelsu.pr)\n"
+            "      KSUD=$(find /data/app -path '*/me.weishu.kernelsu.pr*/lib/*/libksud.so' 2>/dev/null | head -1)\n"
+            "      if [ ! -x \"$KSUD\" ]; then KSUD=$(find /data/app -path '*/me.weishu.kernelsu-*/lib/*/libksud.so' 2>/dev/null | head -1); fi\n"
+            "      ;;\n"
+            "    com.resukisu.resukisu) KSUD=$(find /data/app -path '*/com.resukisu.resukisu*/lib/*/libksud.so' 2>/dev/null | head -1) ;;\n"
+            "    org.bakasu.bakasu) KSUD=$(find /data/app -path '*/org.bakasu.bakasu-*/lib/*/libksud.so' 2>/dev/null | head -1) ;;\n"
+            "    com.kowx712.supermanager) KSUD=$(find /data/app -path '*/com.kowx712.supermanager*/lib/*/libksud.so' 2>/dev/null | head -1) ;;\n"
+            "  esac\n"
+            "  if [ ! -x \"$KSUD\" ] && [ -x /data/adb/ksu/bin/ksud ]; then KSUD=/data/adb/ksu/bin/ksud; fi\n"
+            "  if [ ! -x \"$KSUD\" ]; then\n"
+            "    echo '[!] selected manager ksud unavailable after root handoff' >>\"$LOG\"\n"
+            "    exit 1\n"
+            "  fi\n"
+            "fi\n"
             "if [ ! -x \"$KSUD\" ]; then\n"
             "  KSUD=$(find /data/app -path '*/me.weishu.kernelsu.pr*/lib/arm64/libksud.so' 2>/dev/null | head -1)\n"
             "fi\n"

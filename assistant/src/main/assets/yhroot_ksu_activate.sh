@@ -54,7 +54,11 @@ discover_ksud() {
   return 1
 }
 
-cleanup_tmp_before_enforcing() {
+clear_tmp_directory() {
+  if [ "${TMP_CLEANUP_DONE:-0}" = "1" ]; then
+    return 0
+  fi
+  TMP_CLEANUP_DONE=1
   if [ "${YHROOT_SKIP_TMP_CLEANUP:-0}" = "1" ]; then
     echo '[*] temporary cleanup skipped by caller' >>"$LOG"
     return 0
@@ -72,11 +76,24 @@ cleanup_tmp_before_enforcing() {
       "$CLEANUP_TMP_ROOT"/* \
       "$CLEANUP_TMP_ROOT"/.[!.]* \
       "$CLEANUP_TMP_ROOT"/..?*
-    su -c 'load_policy /sys/fs/selinux/policy'
   ) </dev/null >/dev/null 2>&1 &
   CLEANUP_PID=$!
   wait "$CLEANUP_PID"
 }
+
+cleanup_tmp_before_enforcing() {
+  clear_tmp_directory || return $?
+  if [ "${YHROOT_SKIP_TMP_CLEANUP:-0}" = "1" ]; then
+    return 0
+  fi
+  su -c 'load_policy /sys/fs/selinux/policy'
+}
+
+cleanup_tmp_on_exit() {
+  clear_tmp_directory
+}
+
+trap cleanup_tmp_on_exit EXIT
 
 echo "[*] KernelSU activation script start uid=$(id -u)" >"$LOG"
 chmod 644 "$LOG" 2>/dev/null

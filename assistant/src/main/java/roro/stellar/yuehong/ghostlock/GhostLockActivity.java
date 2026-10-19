@@ -12,6 +12,7 @@ import android.annotation.SuppressLint;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.res.ColorStateList;
+import android.database.Cursor;
 import android.graphics.Insets;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -19,6 +20,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.OpenableColumns;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.text.SpannableStringBuilder;
@@ -70,6 +72,8 @@ public class GhostLockActivity extends ComponentActivity {
     private static final String STATUS_SUCCESS_PREFIX = "success:";
     private static final int MAX_NATIVE_ATTEMPTS = 2;
     private static final long NATIVE_RETRY_DELAY_MS = 1500L;
+    private static final String MANAGER_UNAVAILABLE_MARKER =
+            "selected manager ksud unavailable after root handoff";
     private static final int COLOR_RED = 0xFFFF6B6B;
     private static final int COLOR_GREEN = 0xFF5FD68A;
     private static final int COLOR_YELLOW = 0xFFFFC94D;
@@ -94,6 +98,7 @@ public class GhostLockActivity extends ComponentActivity {
     private GhostLockOtaApi ghostLockOtaApi;
     private View rootView;
     private ActivityResultLauncher<String[]> localImagePicker;
+    private ActivityResultLauncher<String[]> localBootImagesPicker;
     private LocalImagePart pendingLocalImagePart;
     private File localBootImage;
     private final List<String> localImageExtractorArgs = new ArrayList<>();
@@ -215,6 +220,8 @@ public class GhostLockActivity extends ComponentActivity {
         setContentView(R.layout.activity_ghostlock);
         localImagePicker = registerForActivityResult(
                 new ActivityResultContracts.OpenDocument(), this::onLocalImagePicked);
+        localBootImagesPicker = registerForActivityResult(
+                new ActivityResultContracts.OpenMultipleDocuments(), this::onLocalBootImagesPicked);
         setupSystemBars();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -558,8 +565,13 @@ public class GhostLockActivity extends ComponentActivity {
 
     private void launchLocalImagePicker(LocalImagePart part) {
         pendingLocalImagePart = part;
-        appendLog("select " + part.fileName);
-        localImagePicker.launch(new String[]{"*/*"});
+        if (part == LocalImagePart.BOOT) {
+            appendLog("select boot.img; optionally multi-select xbl_config.img, uefi.img, or vendor_boot.img");
+            localBootImagesPicker.launch(new String[]{"*/*"});
+        } else {
+            appendLog("select " + part.fileName);
+            localImagePicker.launch(new String[]{"*/*"});
+        }
     }
 
     private void onLocalImagePicked(Uri uri) {
@@ -572,6 +584,34 @@ public class GhostLockActivity extends ComponentActivity {
             cancelLocalImageParse();
             return;
         }
+        stageLocalImage(uri, part);
+    }
+
+    private void onLocalBootImagesPicked(List<Uri> uris) {
+        LocalImagePart part = pendingLocalImagePart;
+        pendingLocalImagePart = null;
+        if (part != LocalImagePart.BOOT) {
+            return;
+        }
+        if (uris == null || uris.isEmpty()) {
+            cancelLocalImageParse();
+            return;
+        }
+        if (uris.size() == 1) {
+            stageLocalImage(uris.get(0), LocalImagePart.BOOT);
+            return;
+        }
+        worker.execute(() -> {
+            try {
+                List<String> arguments = stageSelectedLocalBootImages(uris);
+                ui.post(() -> onLocalBootImagesStaged(arguments));
+            } catch (Throwable error) {
+                ui.post(() -> failLocalImageParse(error));
+            }
+        });
+    }
+
+    private void stageLocalImage(Uri uri, LocalImagePart part) {
         worker.execute(() -> {
             try {
                 File image = copyLocalImage(uri, part.fileName);
@@ -580,6 +620,87 @@ public class GhostLockActivity extends ComponentActivity {
                 ui.post(() -> failLocalImageParse(error));
             }
         });
+    }
+
+    private List<String> stageSelectedLocalBootImages(List<Uri> uris) throws IOException {
+        Map<LocalImagePart, File> staged = new HashMap<>();
+        for (Uri uri : uris) {
+            String displayName = getLocalImageDisplayName(uri);
+            LocalImagePart part = localImagePartForName(displayName);
+            if (part == null || part == LocalImagePart.PAYLOAD) {
+                throw new IOException("cannot identify selected image by filename: " + displayName);
+            }
+            if (staged.containsKey(part)) {
+                throw new IOException("selected more than one " + part.fileName);
+            }
+            staged.put(part, copyLocalImage(uri, part.fileName));
+        }
+
+        File bootImage = staged.get(LocalImagePart.BOOT);
+        if (bootImage == null) {
+            throw new IOException("multi-select must include boot.img");
+        }
+
+        List<String> arguments = new ArrayList<>();
+        arguments.add(bootImage.getAbsolutePath());
+        for (LocalImagePart part : new LocalImagePart[]{
+                LocalImagePart.XBL, LocalImagePart.UEFI, LocalImagePart.VENDOR_BOOT}) {
+            File image = staged.get(part);
+            if (image != null) {
+                arguments.add(part.extractorArgument);
+                arguments.add(image.getAbsolutePath());
+            }
+        }
+        return arguments;
+    }
+
+    private String getLocalImageDisplayName(Uri uri) throws IOException {
+        try (Cursor cursor = getContentResolver().query(
+                uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (column >= 0) {
+                    String displayName = cursor.getString(column);
+                    if (displayName != null && !displayName.trim().isEmpty()) {
+                        return displayName.trim();
+                    }
+                }
+            }
+        } catch (RuntimeException error) {
+            throw new IOException("cannot read selected image filename", error);
+        }
+        String fallback = uri.getLastPathSegment();
+        if (fallback == null || fallback.trim().isEmpty()) {
+            throw new IOException("selected image has no readable filename");
+        }
+        return fallback;
+    }
+
+    private static LocalImagePart localImagePartForName(String displayName) {
+        String name = displayName.replace('\\', '/');
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        for (LocalImagePart part : LocalImagePart.values()) {
+            if (part.fileName.equalsIgnoreCase(name)) {
+                return part;
+            }
+        }
+        return null;
+    }
+
+    private void onLocalBootImagesStaged(List<String> arguments) {
+        for (int index = 1; index + 1 < arguments.size(); index += 2) {
+            appendLog(arguments.get(index + 1).substring(
+                    arguments.get(index + 1).lastIndexOf(File.separator) + 1) + " attached");
+        }
+        runExtract(
+                arguments,
+                false,
+                "local boot image with selected attachments",
+                GhostLockProfileSource.LOCAL_IMAGE,
+                true);
     }
 
     private File copyLocalImage(Uri uri, String fileName) throws IOException {
@@ -782,15 +903,23 @@ public class GhostLockActivity extends ComponentActivity {
         appendLog("kernel profile source: " + profile.getSource().name());
         worker.execute(() -> {
             int code = 1;
+            boolean nativeStarted = false;
+            boolean allowProfileFallback = true;
             try {
                 File workDir = getFilesDir();
                 File binary = resolveBinary();
-                code = runBinaryWithRetry(binary, workDir, profile.getBytes());
+                String managerPackage = prepareSelectedKsud(workDir);
+                nativeStarted = true;
+                code = runBinaryWithRetry(binary, workDir, profile.getBytes(), managerPackage);
                 appendLog("exit code=" + code);
             } catch (Throwable t) {
+                if (t instanceof ManagerUnavailableException) {
+                    allowProfileFallback = false;
+                }
                 appendLog("error: " + t.getClass().getSimpleName() + ": " + t.getMessage());
             } finally {
                 int finalCode = code;
+                boolean canFallback = nativeStarted && allowProfileFallback;
                 ui.post(() -> {
                     running.set(false);
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -800,7 +929,7 @@ public class GhostLockActivity extends ComponentActivity {
                         }
                         automaticFlowRunning.set(false);
                         setRunState(RunState.SUCCESS);
-                    } else if (fallback == ProfileFallback.APK_BUILTIN_THEN_OTA) {
+                    } else if (canFallback && fallback == ProfileFallback.APK_BUILTIN_THEN_OTA) {
                         appendLog("cached profile failed with exit code=" + finalCode
                                 + "; trying the exact APK built-in profile next");
                         setRunState(RunState.RUNNING);
@@ -821,7 +950,7 @@ public class GhostLockActivity extends ComponentActivity {
                                 }
                             });
                         });
-                    } else if (fallback == ProfileFallback.OTA) {
+                    } else if (canFallback && fallback == ProfileFallback.OTA) {
                         appendLog("APK built-in profile failed with exit code=" + finalCode
                                 + "; falling back to full OTA parsing");
                         setRunState(RunState.RUNNING);
@@ -854,8 +983,16 @@ public class GhostLockActivity extends ComponentActivity {
     private String prepareSelectedKsud(File workDir) throws IOException {
         String managerPackage = KernelSuManagerSelection.INSTANCE.selectedPackage(this);
         File ksud = new File(workDir, "ksud");
+        if (ksud.exists() && !ksud.delete()) {
+            throw new IOException("cannot remove stale selected manager ksud");
+        }
         if (!KernelSuManagerSelection.INSTANCE.copySelectedKsud(this, ksud)) {
-            throw new IOException("selected KernelSU manager has no accessible libksud.so: " + managerPackage);
+            if (ksud.exists() && !ksud.delete()) {
+                throw new IOException("cannot remove incomplete selected manager ksud");
+            }
+            appendLog("manager libksud.so is not readable before root; will resolve "
+                    + managerPackage + " after root handoff");
+            return managerPackage;
         }
         try {
             Os.chmod(ksud.getAbsolutePath(), 448);
@@ -899,9 +1036,9 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     /** Retry once in a fresh upstream process, preserving the resolved profile. */
-    private int runBinaryWithRetry(File binary, File workDir, byte[] profileBlob)
+    private int runBinaryWithRetry(
+            File binary, File workDir, byte[] profileBlob, String managerPackage)
             throws IOException, InterruptedException {
-        String managerPackage = prepareSelectedKsud(workDir);
         int code = 1;
         for (int attempt = 1; attempt <= MAX_NATIVE_ATTEMPTS; attempt++) {
             File handoffLog = new File(workDir, ".ghostlock_ksu.log");
@@ -913,6 +1050,9 @@ public class GhostLockActivity extends ComponentActivity {
             if (code == 0) {
                 return 0;
             }
+            if (containsManagerUnavailableMarker(new File(workDir, ".ghostlock_ksu.log"))) {
+                throw new ManagerUnavailableException(managerPackage);
+            }
             if (!isRetryableNativeExit(code) || attempt == MAX_NATIVE_ATTEMPTS) {
                 break;
             }
@@ -921,6 +1061,30 @@ public class GhostLockActivity extends ComponentActivity {
             Thread.sleep(NATIVE_RETRY_DELAY_MS);
         }
         return code;
+    }
+
+    private static boolean containsManagerUnavailableMarker(File logFile) {
+        if (!logFile.isFile()) {
+            return false;
+        }
+        try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.contains(MANAGER_UNAVAILABLE_MARKER)) {
+                    return true;
+                }
+            }
+        } catch (IOException ignored) {
+            return false;
+        }
+        return false;
+    }
+
+    private static final class ManagerUnavailableException extends IOException {
+        ManagerUnavailableException(String packageName) {
+            super("selected KernelSU manager has no executable ksud after root handoff: "
+                    + packageName);
+        }
     }
     private static boolean isRetryableNativeExit(int code) {
         return code == 1 || code == 137 || code == -1;
@@ -1032,16 +1196,18 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     private enum LocalImagePart {
-        PAYLOAD("payload.bin"),
-        BOOT("boot.img"),
-        XBL("xbl_config.img"),
-        UEFI("uefi.img"),
-        VENDOR_BOOT("vendor_boot.img");
+        PAYLOAD("payload.bin", null),
+        BOOT("boot.img", null),
+        XBL("xbl_config.img", "--xbl-config"),
+        UEFI("uefi.img", "--uefi"),
+        VENDOR_BOOT("vendor_boot.img", "--vendor-boot");
 
         final String fileName;
+        final String extractorArgument;
 
-        LocalImagePart(String fileName) {
+        LocalImagePart(String fileName, String extractorArgument) {
             this.fileName = fileName;
+            this.extractorArgument = extractorArgument;
         }
     }
 
