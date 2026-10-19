@@ -2,10 +2,12 @@ package roro.stellar.yuehong.ghostlock
 
 import android.content.Context
 import com.ghostlock.app.data.HoconSupport
+import com.ghostlock.app.data.LegacyProfileConverter
 import com.ghostlock.app.data.NativeProfileDocument
 import com.ghostlock.app.data.ValueMap
 import com.ghostlock.app.data.asValueMap
 import com.ghostlock.app.data.asValueList
+import com.ghostlock.app.data.copyValue
 import com.ghostlock.app.data.profile.CpuPairView
 import com.ghostlock.app.data.profile.ProfileMerger
 import com.ghostlock.app.data.profile.ProfileResolver
@@ -15,7 +17,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-enum class GhostLockProfileSource { CACHE, APK_BUILTIN, OTA }
+enum class GhostLockProfileSource { CACHE, APK_BUILTIN, OTA, LOCAL_IMAGE }
 
 data class GhostLockResolvedProfile(
     val release: String,
@@ -50,13 +52,35 @@ object GhostLockProfileResolver {
         }.getOrNull()
     }
 
-    /** Validates, persists, and serializes the upstream extractor's flattened HOCON profile. */
+    /** Validates, persists, and serializes an upstream v1 JSON or v2 HOCON profile. */
     @JvmStatic
     @Throws(IOException::class, IllegalArgumentException::class)
-    fun parseAndCache(context: Context, release: String, profileFile: File): GhostLockResolvedProfile {
-        require(profileFile.isFile) { "OTA profile was not written: ${profileFile.absolutePath}" }
-        val text = profileFile.readText(Charsets.UTF_8)
-        val resolved = resolveText(context, release, text, GhostLockProfileSource.OTA)
+    fun parseAndCache(context: Context, release: String, profileFile: File): GhostLockResolvedProfile =
+        parseAndCache(context, release, profileFile, GhostLockProfileSource.OTA)
+
+    @JvmStatic
+    @Throws(IOException::class, IllegalArgumentException::class)
+    fun parseAndCache(
+        context: Context,
+        release: String,
+        profileFile: File,
+        source: GhostLockProfileSource,
+    ): GhostLockResolvedProfile {
+        require(profileFile.isFile) { "extractor profile was not written: ${profileFile.absolutePath}" }
+        return parseAndCache(context, release, profileFile.readText(Charsets.UTF_8), source)
+    }
+
+    @JvmStatic
+    @Throws(IOException::class, IllegalArgumentException::class)
+    fun parseAndCache(
+        context: Context,
+        release: String,
+        profileText: String,
+        source: GhostLockProfileSource,
+    ): GhostLockResolvedProfile {
+        val profile = parseProfileForRelease(release, profileText)
+        val resolved = resolveDocument(context, release, profile, source)
+        val normalizedText = HoconSupport.render(profile)
         val target = cacheFile(context, release)
             ?: throw IllegalArgumentException("invalid kernel release: $release")
         val parent = target.parentFile ?: throw IOException("profile cache has no parent")
@@ -64,7 +88,7 @@ object GhostLockProfileResolver {
             throw IOException("cannot create profile cache: ${parent.absolutePath}")
         }
         val temporary = File(parent, "${target.name}.tmp")
-        temporary.writeText(text, Charsets.UTF_8)
+        temporary.writeText(normalizedText, Charsets.UTF_8)
         try {
             try {
                 Files.move(
@@ -92,9 +116,32 @@ object GhostLockProfileResolver {
         text: String,
         source: GhostLockProfileSource,
     ): GhostLockResolvedProfile {
-        val profile = HoconSupport.parseValue(text).asValueMap()
-            ?: throw IllegalArgumentException("profile is not a HOCON object")
+        val profile = parseProfileForRelease(release, text)
         return resolveDocument(context, release, profile, source)
+    }
+
+    /**
+     * Accepts both a single profile object and offsets.json's profile array.
+     * Legacy entries are converted with the upstream converter before they
+     * enter the same validation and cache path as current HOCON profiles.
+     */
+    private fun parseProfileForRelease(release: String, text: String): ValueMap {
+        val parsed = HoconSupport.parseValue(text)
+            ?: throw IllegalArgumentException("profile is not valid JSON or HOCON")
+        val entries = when (parsed) {
+            is Map<*, *> -> listOfNotNull(parsed.asValueMap())
+            is List<*> -> parsed.mapNotNull { it.asValueMap() }
+            else -> emptyList()
+        }
+        require(entries.isNotEmpty()) { "profile document contains no profile objects" }
+
+        val entry = entries.firstOrNull { it["release"] == release }
+            ?: throw IllegalArgumentException("no profile matches current kernel release: $release")
+        val profile = entry.copyValue().asValueMap()
+            ?: throw IllegalArgumentException("profile is not an object")
+        LegacyProfileConverter.convertValue(profile)
+        if (!profile.containsKey("schema_version")) profile["schema_version"] = 1L
+        return profile
     }
 
     private fun resolveDocument(

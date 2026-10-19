@@ -4,7 +4,10 @@
     <string name="ghostlock_action_running">Running…</string>
     <string name="ghostlock_action_advanced">Advanced</string>
     <string name="ghostlock_action_parse_ota">Parse OTA and run</string>
-    <string name="ghostlock_action_start_privilege">Start privilege escalation</string>
+    <string name="ghostlock_action_start_privilege">Start privilege</string>
+    <string name="ghostlock_action_parse_local_image">Parse local image</string>
+    <string name="ghostlock_local_image_source_title">Select a local image source</string>
+    <string name="ghostlock_local_image_attach_title">Optional image to derive physical load address</string>
     <string name="ghostlock_action_resolving_ota">Getting current OTA…</string>
     <string name="ghostlock_auto_ota_failed">Could not get the current full OTA</string>
     <string name="ghostlock_ota_title">Full OTA package</string>
@@ -18,7 +21,7 @@
     <string name="ghostlock_parse_start">Start</string>
     <string name="ghostlock_parse_pick_boot_hint">Pick boot.img first, then xbl_config.img</string>
     <string name="ghostlock_parse_pick_xbl_hint">Pick xbl_config.img</string>
-    <string name="ghostlock_parse_success">OTA offsets parsed; starting</string>
+    <string name="ghostlock_parse_success">Profile parsed; starting</string>
     <string name="ghostlock_parse_failed">Parse failed</string>
     <string name="ghostlock_parse_failed_route">Kernel incompatible with the current exploit chain</string>
     <string name="ghostlock_parse_failed_kallsyms">Cannot recover kernel symbol table</string>
@@ -35,4 +38,15 @@
     <string name="ghostlock_kernel_unsupported">Not supported</string>
     <string name="ghostlock_support_label">Support</string>
     <string name="ghostlock_cpu_pair_label">CPU cores</string>
+    <string-array name="ghostlock_local_image_sources">
+        <item>payload.bin</item>
+        <item>boot.img</item>
+    </string-array>
+    <string-array name="ghostlock_local_image_attachments">
+        <item>Parse boot.img only</item>
+        <item>Attach xbl_config.img</item>
+        <item>Attach uefi.img</item>
+        <item>Attach xbl_config.img + uefi.img</item>
+        <item>Attach vendor_boot.img (MediaTek)</item>
+    </string-array>
 </resources>

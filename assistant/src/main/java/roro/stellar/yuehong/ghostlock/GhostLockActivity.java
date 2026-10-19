@@ -4,6 +4,7 @@ import roro.stellar.yuehong.R;
 import roro.stellar.yuehong.shell.GhostLockOtaApi;
 import roro.stellar.yuehong.shell.KernelSuManagerSelection;
 
+import android.app.AlertDialog;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ValueAnimator;
@@ -13,6 +14,7 @@ import android.content.ClipboardManager;
 import android.content.res.ColorStateList;
 import android.graphics.Insets;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -38,8 +40,10 @@ import android.widget.Toast;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -53,6 +57,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import androidx.activity.ComponentActivity;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 
 public class GhostLockActivity extends ComponentActivity {
     private static final String TAG = "GhostLockApp";
@@ -69,6 +75,9 @@ public class GhostLockActivity extends ComponentActivity {
     private static final int COLOR_YELLOW = 0xFFFFC94D;
     private static final int COLOR_BLUE = 0xFF60A5FA;
     private static final int COLOR_NONE = -1;
+    private static final int ATTACH_XBL = 1;
+    private static final int ATTACH_UEFI = 2;
+    private static final int ATTACH_VENDOR_BOOT = 4;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -80,9 +89,15 @@ public class GhostLockActivity extends ComponentActivity {
     private ScrollView logScroll;
     private Button copyButton;
     private Button autoRootButton;
+    private Button localImageButton;
     private EditText otaUrlInput;
     private GhostLockOtaApi ghostLockOtaApi;
     private View rootView;
+    private ActivityResultLauncher<String[]> localImagePicker;
+    private LocalImagePart pendingLocalImagePart;
+    private File localBootImage;
+    private final List<String> localImageExtractorArgs = new ArrayList<>();
+    private int pendingLocalImageAttachments;
 
     /**
      * Returns the value when it looks like a real device name, else null.
@@ -198,6 +213,8 @@ public class GhostLockActivity extends ComponentActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_ghostlock);
+        localImagePicker = registerForActivityResult(
+                new ActivityResultContracts.OpenDocument(), this::onLocalImagePicked);
         setupSystemBars();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -211,6 +228,7 @@ public class GhostLockActivity extends ComponentActivity {
         logScroll = findViewById(R.id.logScroll);
         copyButton = findViewById(R.id.copyButton);
         autoRootButton = findViewById(R.id.autoRootButton);
+        localImageButton = findViewById(R.id.localImageButton);
         otaUrlInput = findViewById(R.id.otaUrlInput);
         ghostLockOtaApi = new GhostLockOtaApi(this);
 
@@ -221,7 +239,8 @@ public class GhostLockActivity extends ComponentActivity {
 
         copyButton.setOnClickListener(v -> copyLogs());
         autoRootButton.setOnClickListener(v -> startSelectedPrivilege());
-        installPressMotion(copyButton, autoRootButton);
+        localImageButton.setOnClickListener(v -> beginLocalImageParse());
+        installPressMotion(copyButton, autoRootButton, localImageButton);
         playEntryMotion();
     }
 
@@ -454,6 +473,17 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     private void runExtract(String input, boolean automaticFlow) {
+        List<String> arguments = new ArrayList<>();
+        arguments.add(input);
+        runExtract(arguments, automaticFlow, "full OTA: " + input, GhostLockProfileSource.OTA, false);
+    }
+
+    private void runExtract(
+            List<String> sourceArguments,
+            boolean automaticFlow,
+            String sourceDescription,
+            GhostLockProfileSource profileSource,
+            boolean clearLocalImages) {
         worker.execute(() -> {
             int code = 1;
             GhostLockResolvedProfile profile = null;
@@ -468,32 +498,36 @@ public class GhostLockActivity extends ComponentActivity {
                     throw new IOException("cannot remove stale profile output");
                 }
                 List<String> args = new ArrayList<>();
-                args.add(input);
+                args.addAll(sourceArguments);
                 args.add("--format");
                 args.add("conf");
                 args.add("--out");
                 args.add(parsed.getAbsolutePath());
                 args.add("--work-dir");
                 args.add(workDir.getAbsolutePath());
-                appendLog("extracting upstream HOCON profile from full OTA: " + input);
+                appendLog("extracting upstream HOCON profile from " + sourceDescription);
                 code = runExtractProcess(binary, args, workDir);
                 appendLog("extract exit code=" + code);
                 if (code == 0) {
                     String release = System.getProperty("os.version", "");
-                    profile = GhostLockProfileResolver.parseAndCache(this, release, parsed);
-                    appendLog("validated and cached OTA profile for " + release);
+                    profile = GhostLockProfileResolver.parseAndCache(
+                            this, release, parsed, profileSource);
+                    appendLog("validated and cached " + profileSource.name() + " profile for " + release);
                 }
             } catch (Throwable error) {
                 appendLog("profile extraction failed: " + error.getClass().getSimpleName()
                         + ": " + error.getMessage());
             } finally {
                 parsed.delete();
+                if (clearLocalImages) {
+                    clearLocalImageFiles();
+                }
             }
             final int extractCode = code;
             final GhostLockResolvedProfile resolved = profile;
             ui.post(() -> {
                 if (resolved != null) {
-                    appendLog("profile source=OTA; starting upstream GhostLock core");
+                    appendLog("profile source=" + profileSource.name() + "; starting upstream GhostLock core");
                     toast(R.string.ghostlock_parse_success);
                     startExploit(resolved, ProfileFallback.NONE);
                 } else {
@@ -506,6 +540,176 @@ public class GhostLockActivity extends ComponentActivity {
             });
         });
     }
+    private void beginLocalImageParse() {
+        if (running.get() || automaticFlowRunning.get()) {
+            return;
+        }
+        clearLocalImageFiles();
+        resetLocalImageSelection();
+        setRunState(RunState.RUNNING);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.ghostlock_local_image_source_title)
+                .setItems(R.array.ghostlock_local_image_sources, (dialog, which) -> {
+                    launchLocalImagePicker(which == 0 ? LocalImagePart.PAYLOAD : LocalImagePart.BOOT);
+                })
+                .setOnCancelListener(dialog -> cancelLocalImageParse())
+                .show();
+    }
+
+    private void launchLocalImagePicker(LocalImagePart part) {
+        pendingLocalImagePart = part;
+        appendLog("select " + part.fileName);
+        localImagePicker.launch(new String[]{"*/*"});
+    }
+
+    private void onLocalImagePicked(Uri uri) {
+        LocalImagePart part = pendingLocalImagePart;
+        pendingLocalImagePart = null;
+        if (part == null) {
+            return;
+        }
+        if (uri == null) {
+            cancelLocalImageParse();
+            return;
+        }
+        worker.execute(() -> {
+            try {
+                File image = copyLocalImage(uri, part.fileName);
+                ui.post(() -> onLocalImageStaged(part, image));
+            } catch (Throwable error) {
+                ui.post(() -> failLocalImageParse(error));
+            }
+        });
+    }
+
+    private File copyLocalImage(Uri uri, String fileName) throws IOException {
+        File directory = new File(getCacheDir(), "ghostlock_local_image");
+        if (!directory.isDirectory() && !directory.mkdirs()) {
+            throw new IOException("cannot create image staging directory");
+        }
+        File target = new File(directory, fileName);
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            if (input == null) {
+                throw new IOException("cannot open selected document");
+            }
+            try (FileOutputStream output = new FileOutputStream(target, false)) {
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, count);
+                }
+                output.getFD().sync();
+            }
+        }
+        return target;
+    }
+
+    private void onLocalImageStaged(LocalImagePart part, File image) {
+        appendLog(part.fileName + " ready (" + image.length() + " bytes)");
+        switch (part) {
+            case PAYLOAD -> {
+                List<String> arguments = new ArrayList<>();
+                arguments.add(image.getAbsolutePath());
+                runExtract(
+                        arguments,
+                        false,
+                        "local payload.bin",
+                        GhostLockProfileSource.LOCAL_IMAGE,
+                        true);
+            }
+            case BOOT -> {
+                localBootImage = image;
+                showLocalImageAttachOptions();
+            }
+            case XBL -> {
+                localImageExtractorArgs.add("--xbl-config");
+                localImageExtractorArgs.add(image.getAbsolutePath());
+                continueLocalImageSelection();
+            }
+            case UEFI -> {
+                localImageExtractorArgs.add("--uefi");
+                localImageExtractorArgs.add(image.getAbsolutePath());
+                continueLocalImageSelection();
+            }
+            case VENDOR_BOOT -> {
+                localImageExtractorArgs.add("--vendor-boot");
+                localImageExtractorArgs.add(image.getAbsolutePath());
+                continueLocalImageSelection();
+            }
+        }
+    }
+
+    private void showLocalImageAttachOptions() {
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.ghostlock_local_image_attach_title)
+                .setItems(R.array.ghostlock_local_image_attachments, (dialog, which) -> {
+                    pendingLocalImageAttachments = switch (which) {
+                        case 1 -> ATTACH_XBL;
+                        case 2 -> ATTACH_UEFI;
+                        case 3 -> ATTACH_XBL | ATTACH_UEFI;
+                        case 4 -> ATTACH_VENDOR_BOOT;
+                        default -> 0;
+                    };
+                    localImageExtractorArgs.clear();
+                    localImageExtractorArgs.add(localBootImage.getAbsolutePath());
+                    continueLocalImageSelection();
+                })
+                .setOnCancelListener(dialog -> cancelLocalImageParse())
+                .show();
+    }
+
+    private void continueLocalImageSelection() {
+        if ((pendingLocalImageAttachments & ATTACH_XBL) != 0) {
+            pendingLocalImageAttachments &= ~ATTACH_XBL;
+            launchLocalImagePicker(LocalImagePart.XBL);
+        } else if ((pendingLocalImageAttachments & ATTACH_UEFI) != 0) {
+            pendingLocalImageAttachments &= ~ATTACH_UEFI;
+            launchLocalImagePicker(LocalImagePart.UEFI);
+        } else if ((pendingLocalImageAttachments & ATTACH_VENDOR_BOOT) != 0) {
+            pendingLocalImageAttachments &= ~ATTACH_VENDOR_BOOT;
+            launchLocalImagePicker(LocalImagePart.VENDOR_BOOT);
+        } else {
+            List<String> arguments = new ArrayList<>(localImageExtractorArgs);
+            runExtract(
+                    arguments,
+                    false,
+                    "local boot image",
+                    GhostLockProfileSource.LOCAL_IMAGE,
+                    true);
+        }
+    }
+
+    private void cancelLocalImageParse() {
+        appendLog("local image profile extraction cancelled");
+        clearLocalImageFiles();
+        resetLocalImageSelection();
+        setRunState(RunState.IDLE);
+    }
+
+    private void failLocalImageParse(Throwable error) {
+        appendLog("local image profile extraction failed: " + error.getClass().getSimpleName()
+                + ": " + error.getMessage());
+        clearLocalImageFiles();
+        resetLocalImageSelection();
+        setRunState(RunState.FAILED);
+        toast(R.string.ghostlock_parse_failed);
+    }
+
+    private void resetLocalImageSelection() {
+        pendingLocalImagePart = null;
+        pendingLocalImageAttachments = 0;
+        localBootImage = null;
+        localImageExtractorArgs.clear();
+    }
+
+    private void clearLocalImageFiles() {
+        File directory = new File(getCacheDir(), "ghostlock_local_image");
+        for (LocalImagePart part : LocalImagePart.values()) {
+            new File(directory, part.fileName).delete();
+        }
+        directory.delete();
+    }
+
     /**
      * Map an extractor exit code to the user-facing failure message.
      * 3: pselect route infeasible, 4: missing required offsets, 5: kallsyms
@@ -632,8 +836,9 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     private void setRunState(RunState state) {
-        boolean busy = state == RunState.RUNNING || automaticFlowRunning.get();
+        boolean busy = state == RunState.RUNNING || automaticFlowRunning.get() || running.get();
         autoRootButton.setEnabled(!busy);
+        localImageButton.setEnabled(!busy);
         autoRootButton.setText(busy ? R.string.ghostlock_action_running : R.string.ghostlock_action_start_privilege);
     }
 
@@ -824,6 +1029,20 @@ public class GhostLockActivity extends ComponentActivity {
 
     private enum RunState {
         IDLE, RUNNING, SUCCESS, FAILED
+    }
+
+    private enum LocalImagePart {
+        PAYLOAD("payload.bin"),
+        BOOT("boot.img"),
+        XBL("xbl_config.img"),
+        UEFI("uefi.img"),
+        VENDOR_BOOT("vendor_boot.img");
+
+        final String fileName;
+
+        LocalImagePart(String fileName) {
+            this.fileName = fileName;
+        }
     }
 
     private enum ProfileFallback {

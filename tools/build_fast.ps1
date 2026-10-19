@@ -200,7 +200,15 @@ function Verify-ReleaseApk {
             throw "Release signing property is missing: $name"
         }
     }
-    $keystore = [IO.Path]::GetFullPath((Join-Path $projectRoot $signing['storeFile']))
+    $keystorePath = [regex]::Replace($signing['storeFile'], '\\u([0-9a-fA-F]{4})', {
+        param($match)
+        ([char][Convert]::ToInt32($match.Groups[1].Value, 16)).ToString()
+    })
+    $keystore = if ([IO.Path]::IsPathRooted($keystorePath)) {
+        [IO.Path]::GetFullPath($keystorePath)
+    } else {
+        [IO.Path]::GetFullPath((Join-Path $projectRoot $keystorePath))
+    }
     if (-not (Test-Path -LiteralPath $keystore -PathType Leaf)) {
         throw "Release keystore is missing: $keystore"
     }
