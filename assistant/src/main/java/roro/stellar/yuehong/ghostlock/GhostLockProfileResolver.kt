@@ -23,6 +23,7 @@ data class GhostLockResolvedProfile(
     val release: String,
     val bytes: ByteArray,
     val source: GhostLockProfileSource,
+    val cacheText: String? = null,
 )
 
 /** Resolves the assistant's cache → bundled profile → OTA profile chain. */
@@ -39,9 +40,11 @@ object GhostLockProfileResolver {
     fun loadCached(context: Context, release: String): GhostLockResolvedProfile? {
         val file = cacheFile(context, release) ?: return null
         if (!file.isFile) return null
-        return runCatching {
+        val resolved = runCatching {
             resolveText(context, release, file.readText(Charsets.UTF_8), GhostLockProfileSource.CACHE)
         }.getOrNull()
+        if (resolved == null) file.delete()
+        return resolved
     }
 
     @JvmStatic
@@ -52,37 +55,50 @@ object GhostLockProfileResolver {
         }.getOrNull()
     }
 
-    /** Validates, persists, and serializes an upstream v1 JSON or v2 HOCON profile. */
+    /** Validates and serializes an upstream v1 JSON or v2 HOCON profile without persisting it. */
     @JvmStatic
     @Throws(IOException::class, IllegalArgumentException::class)
-    fun parseAndCache(context: Context, release: String, profileFile: File): GhostLockResolvedProfile =
-        parseAndCache(context, release, profileFile, GhostLockProfileSource.OTA)
+    fun parse(context: Context, release: String, profileFile: File): GhostLockResolvedProfile =
+        parse(context, release, profileFile, GhostLockProfileSource.OTA)
 
     @JvmStatic
     @Throws(IOException::class, IllegalArgumentException::class)
-    fun parseAndCache(
+    fun parse(
         context: Context,
         release: String,
         profileFile: File,
         source: GhostLockProfileSource,
     ): GhostLockResolvedProfile {
         require(profileFile.isFile) { "extractor profile was not written: ${profileFile.absolutePath}" }
-        return parseAndCache(context, release, profileFile.readText(Charsets.UTF_8), source)
+        return parse(context, release, profileFile.readText(Charsets.UTF_8), source)
     }
 
     @JvmStatic
     @Throws(IOException::class, IllegalArgumentException::class)
-    fun parseAndCache(
+    fun parse(
         context: Context,
         release: String,
         profileText: String,
         source: GhostLockProfileSource,
     ): GhostLockResolvedProfile {
         val profile = parseProfileForRelease(release, profileText)
-        val resolved = resolveDocument(context, release, profile, source)
-        val normalizedText = HoconSupport.render(profile)
-        val target = cacheFile(context, release)
-            ?: throw IllegalArgumentException("invalid kernel release: $release")
+        return resolveDocument(context, release, profile, source)
+    }
+
+    /** Removes a cached candidate before running it, so a crash cannot leave it marked successful. */
+    @JvmStatic
+    fun removeCached(context: Context, release: String): Boolean {
+        val target = cacheFile(context, release) ?: return false
+        return !target.exists() || target.delete() || !target.exists()
+    }
+
+    /** Persists a dynamic profile only after the native activation reports success. */
+    @JvmStatic
+    @Throws(IOException::class, IllegalArgumentException::class)
+    fun cacheAfterSuccessfulAttempt(context: Context, profile: GhostLockResolvedProfile) {
+        val normalizedText = profile.cacheText ?: return
+        val target = cacheFile(context, profile.release)
+            ?: throw IllegalArgumentException("invalid kernel release: ${profile.release}")
         val parent = target.parentFile ?: throw IOException("profile cache has no parent")
         if (!parent.isDirectory && !parent.mkdirs()) {
             throw IOException("cannot create profile cache: ${parent.absolutePath}")
@@ -107,7 +123,6 @@ object GhostLockProfileResolver {
         } finally {
             temporary.delete()
         }
-        return resolved
     }
 
     private fun resolveText(
@@ -190,7 +205,12 @@ object GhostLockProfileResolver {
         val decoded = NativeProfileDocument.fromBinary(blob)
             ?: throw IllegalArgumentException("cannot encode GhostLock profile")
         require(decoded.release == release) { "encoded profile release mismatch" }
-        return GhostLockResolvedProfile(release, blob, source)
+        val cacheText = if (source == GhostLockProfileSource.APK_BUILTIN) {
+            null
+        } else {
+            HoconSupport.render(document)
+        }
+        return GhostLockResolvedProfile(release, blob, source, cacheText)
     }
 
     private fun builtinEntry(context: Context, release: String): ValueMap? {

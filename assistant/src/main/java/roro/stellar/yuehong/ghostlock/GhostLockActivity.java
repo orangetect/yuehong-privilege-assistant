@@ -517,9 +517,10 @@ public class GhostLockActivity extends ComponentActivity {
                 appendLog("extract exit code=" + code);
                 if (code == 0) {
                     String release = System.getProperty("os.version", "");
-                    profile = GhostLockProfileResolver.parseAndCache(
+                    profile = GhostLockProfileResolver.parse(
                             this, release, parsed, profileSource);
-                    appendLog("validated and cached " + profileSource.name() + " profile for " + release);
+                    appendLog("validated " + profileSource.name() + " profile for " + release
+                            + "; cache is deferred until activation succeeds");
                 }
             } catch (Throwable error) {
                 appendLog("profile extraction failed: " + error.getClass().getSimpleName()
@@ -909,9 +910,25 @@ public class GhostLockActivity extends ComponentActivity {
                 File workDir = getFilesDir();
                 File binary = resolveBinary();
                 String managerPackage = prepareSelectedKsud(workDir);
+                if (profile.getSource() == GhostLockProfileSource.CACHE) {
+                    if (!GhostLockProfileResolver.removeCached(this, profile.getRelease())) {
+                        throw new IOException("cannot retire cached profile before activation attempt");
+                    }
+                    appendLog("cached profile removed until this activation is confirmed successful");
+                }
                 nativeStarted = true;
                 code = runBinaryWithRetry(binary, workDir, profile.getBytes(), managerPackage);
                 appendLog("exit code=" + code);
+                if (code == 0 && profile.getCacheText() != null) {
+                    try {
+                        GhostLockProfileResolver.cacheAfterSuccessfulAttempt(this, profile);
+                        appendLog("confirmed successful " + profile.getSource().name()
+                                + " profile cached for " + profile.getRelease());
+                    } catch (Exception cacheError) {
+                        appendLog("activation succeeded but profile cache write failed: "
+                                + cacheError.getMessage());
+                    }
+                }
             } catch (Throwable t) {
                 if (t instanceof ManagerUnavailableException) {
                     allowProfileFallback = false;
