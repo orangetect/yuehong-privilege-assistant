@@ -1,6 +1,6 @@
 # 开源发行说明
 
-此目录是月虹提权助手 v1.6.0 的公开源码快照，来源于当前权威开发仓库。
+此目录是月虹提权助手 v1.6.1 的公开源码快照，来源于当前权威开发仓库。
 
 ## 已移除的私有内容
 
@@ -8,7 +8,7 @@
 - `keystore.properties`、发行 JKS/KeyStore、证书私钥及签名口令。
 - APK、AAB、R8 mapping、Gradle/CMake/Rust 构建缓存、调试日志和 Codex 本地事务文件。
 - 公告页中原有的硬编码更新服务器地址；公开构建改从本地 `server.properties` 的 `updateUrl` 读取。
-- 当前版本字段统一为根工程 `build.gradle` 中的 `yuehongVersionCode=160` 与 `yuehongVersionName=v1.6.0`；`manager` Manifest 和 `assistant` BuildConfig 均引用该版本源。
+- 当前版本字段统一为根工程 `build.gradle` 中的 `yuehongVersionCode=161` 与 `yuehongVersionName=v1.6.1`；`manager` Manifest 和 `assistant` BuildConfig 均引用该版本源。
 
 ## 本地配置
 

@@ -35,10 +35,10 @@ Stellar 保留的 Shizuku AIDL 与兼容层继续遵循 Apache-2.0。完整文�
 
 - Project: GhostLock-App
 - Source: https://github.com/YuKongA/ghostlock-app
-- Upstream snapshot: `ghostlock-app-main.zip`, SHA-256 `10898C812713F3AE239BB931EC6BA1CACFF60656D0FB49C87B58B09E335DD19E`
+- Upstream snapshot: user-provided `ghostlock-app-main (2).zip` (2026-10-20), SHA-256 `953FA5F65F9AE6BAE79C16E4769F327A143F4DBB84729AA544C6141559FD4E4B`
 - License: Apache License 2.0
 
-GhostLock C 核心、Rust 镜像/OTA 提取器、内核偏移表及许可证随源码交付；本次上游 native/offset 源码位于 `third_party/ghostlock`；Android 页面适配位于 `assistant/src/main/java/roro/stellar/yuehong/ghostlock`。Rust 提取器保留月虹的 `--require-xbl` 参数及其 HTTP 依赖配置，避免丢失骁龙 OTA 校验和在线提取能力。完整许可证文本位于 `LICENSES/GhostLock-Apache-2.0.txt`。
+GhostLock C 核心、Rust 镜像/OTA 提取器、内核 profile 及许可证随源码交付；上游原文件位于 `third_party/ghostlock`，管理器选择、缓存优先级和 ROM V2 OTA 适配位于助手集成代码。Native 增补了所选 `ksud` 路径和 KernelSU handoff 成功判定。Rust 提取器保留月虹的 `--require-xbl` 参数及其 HTTP 依赖配置，避免丢失骁龙 OTA 校验和在线提取能力。完整许可证文本位于 `LICENSES/GhostLock-Apache-2.0.txt`。
 
 版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。
 

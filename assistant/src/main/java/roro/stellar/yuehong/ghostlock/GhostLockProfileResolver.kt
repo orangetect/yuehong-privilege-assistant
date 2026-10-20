@@ -191,7 +191,7 @@ object GhostLockProfileResolver {
             imported = null,
             overrides = null,
             tuningExecution = tuning,
-            pair = CpuPairView(0, 1),
+            pair = highestFrequencyCpuPair(),
             routePresets = presets,
         )
         val errors = ProfileResolver.validateMerged(merged, route, fallback)
@@ -243,6 +243,39 @@ object GhostLockProfileResolver {
 
     private fun parseAsset(loader: AssetLoader, path: String): ValueMap? =
         HoconSupport.parseValue(loader.load(path)).asValueMap()
+
+    /** Matches upstream's default: first complete CPU pair in the highest-frequency cluster. */
+    private fun highestFrequencyCpuPair(): CpuPairView {
+        val pairs = readSysFile("/sys/devices/system/cpu/online")
+            .split(',')
+            .flatMap { part ->
+                val bounds = part.trim().split('-', limit = 2).mapNotNull(String::toIntOrNull)
+                when (bounds.size) {
+                    1 -> bounds
+                    2 -> if (bounds[1] >= bounds[0]) (bounds[0]..bounds[1]).toList() else emptyList()
+                    else -> emptyList()
+                }
+            }
+            .distinct()
+            .groupBy(::readMaxFreq)
+            .filterKeys { it > 0L }
+            .toSortedMap(compareByDescending { it })
+            .values
+            .asSequence()
+            .flatMap { cluster -> cluster.sorted().chunked(2).asSequence().filter { it.size == 2 } }
+            .firstOrNull()
+
+        return pairs?.let { CpuPairView(it[0], it[1]) } ?: CpuPairView(0, 1)
+    }
+
+    private fun readMaxFreq(cpu: Int): Long =
+        readSysFile("/sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_max_freq")
+            .toLongOrNull() ?: -1L
+
+    private fun readSysFile(path: String): String = runCatching {
+        val file = File(path)
+        if (file.isFile) file.readText(Charsets.UTF_8).trim() else ""
+    }.getOrDefault("")
 
     private fun cacheFile(context: Context, release: String): File? {
         if (!safeRelease.matches(release)) return null

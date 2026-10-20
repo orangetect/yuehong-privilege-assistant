@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the APK-side GhostLock kernel list from upstream offset headers."""
+"""Generate the APK-side GhostLock kernel list from the upstream profile index."""
 from __future__ import annotations
 
 import argparse
@@ -8,8 +8,9 @@ from pathlib import Path
 
 
 PACKAGE = "roro.stellar.yuehong.ghostlock"
-INCLUDE_RE = re.compile(r'^\s*#include\s+"([^"/]+/offsets\.h)"\s*$', re.MULTILINE)
-RELEASE_RE = re.compile(r'OFFSETS_ENTRY\(\s*"([^"]+)"')
+PROFILE_RE = re.compile(
+    r'\{\s*release\s*=\s*"([^"]+)"\s*,\s*file\s*=\s*"([^"]+)"\s*\}'
+)
 
 
 def java_string(value: str) -> str:
@@ -17,27 +18,25 @@ def java_string(value: str) -> str:
 
 
 def collect_releases(vendor_root: Path) -> list[str]:
-    kernels_root = vendor_root / "src" / "kernels"
-    shared_header = kernels_root / "offsets.h"
-    includes = INCLUDE_RE.findall(shared_header.read_text(encoding="utf-8"))
-    if not includes:
-        raise RuntimeError(f"no upstream kernel includes found in {shared_header}")
+    profiles_root = vendor_root / "app" / "src" / "main" / "assets" / "kernel_profiles"
+    index = profiles_root / "index.conf"
+    entries = PROFILE_RE.findall(index.read_text(encoding="utf-8"))
+    if not entries:
+        raise RuntimeError(f"no upstream profiles found in {index}")
 
     releases: list[str] = []
     seen: set[str] = set()
-    for relative in includes:
-        header = kernels_root / relative
-        if not header.is_file():
-            raise RuntimeError(f"missing upstream kernel header: {header}")
-        matches = RELEASE_RE.findall(header.read_text(encoding="utf-8"))
-        if not matches:
-            raise RuntimeError(f"no OFFSETS_ENTRY release found in {header}")
-        for release in matches:
-            if not release.startswith("6."):
-                raise RuntimeError(f"non-6.x kernel found in upstream support list: {release}")
-            if release not in seen:
-                seen.add(release)
-                releases.append(release)
+    for release, filename in entries:
+        if not release.startswith("6.") or release.endswith("-template"):
+            continue
+        profile = profiles_root / filename
+        if not profile.is_file():
+            raise RuntimeError(f"missing upstream kernel profile: {profile}")
+        if release not in seen:
+            seen.add(release)
+            releases.append(release)
+    if not releases:
+        raise RuntimeError(f"no exact 6.x kernel profiles found in {index}")
     return releases
 
 
@@ -45,7 +44,7 @@ def render(releases: list[str]) -> str:
     values = "\n".join(f'        "{java_string(release)}",' for release in releases)
     return f'''package {PACKAGE};
 
-/** Generated from the bundled upstream kernel offset headers; do not edit. */
+/** Generated from the bundled upstream kernel profile index; do not edit. */
 public final class SupportedKernels {{
     public static final String[] UNAMES = {{
 {values}

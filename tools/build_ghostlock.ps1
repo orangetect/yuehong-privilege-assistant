@@ -103,20 +103,55 @@ try {
     }
 
     New-Item -ItemType Directory -Path $nativeBuildRoot -Force | Out-Null
+    $objectRoot = Join-Path $nativeBuildRoot 'obj'
     $responseFile = Join-Path $srcRoot '.ghostlock-clangxx.rsp'
-    $clangxxArgs = @(
+    $commonCxxArgs = @(
         '-O2', '-flto', '-Wall', '-Wextra', '-Wconversion', '-Wsign-conversion',
         '-Wno-unused-parameter', '-Wno-sign-compare', '-Wno-unused-function',
         '-Icore', '-DTARGET_CONFIG_H=\"kernel/target.h\"',
-        '-std=c++23', '-fno-rtti', '-fPIE', '-pie', '-pthread', '-static-libstdc++'
-    ) + $nativeSources + @('-o', $nativeBinary.Replace('\', '/'))
-    [IO.File]::WriteAllLines($responseFile, $clangxxArgs, (New-Object Text.UTF8Encoding($false)))
+        '-std=c++23', '-fno-rtti'
+    )
+    $nativeObjects = @()
     try {
         Push-Location -LiteralPath $srcRoot
-        try { & $clangxx '@.ghostlock-clangxx.rsp' } finally { Pop-Location }
-        if ($LASTEXITCODE -ne 0) { throw "GhostLock C++ build failed with exit code $LASTEXITCODE" }
-        if (-not (Test-Path -LiteralPath $nativeBinary)) {
-            throw "GhostLock C++ compiler returned success without producing: $nativeBinary"
+        try {
+            foreach ($source in $nativeSources) {
+                $relativeObject = $source -replace '\.cpp$', '.o'
+                $object = Join-Path $objectRoot $relativeObject
+                $objectDirectory = Split-Path -Parent $object
+                New-Item -ItemType Directory -Path $objectDirectory -Force | Out-Null
+                $compileArgs = $commonCxxArgs + @(
+                    '-c', $source, '-o', $object.Replace('\', '/')
+                )
+                [IO.File]::WriteAllLines(
+                    $responseFile, $compileArgs, (New-Object Text.UTF8Encoding($false)))
+                & $clangxx '@.ghostlock-clangxx.rsp'
+                if ($LASTEXITCODE -ne 0) {
+                    throw "GhostLock C++ compilation failed for $source with exit code $LASTEXITCODE"
+                }
+                if (-not (Test-Path -LiteralPath $object)) {
+                    throw "GhostLock C++ compiler returned success without producing: $object"
+                }
+                $nativeObjects += $object.Replace('\', '/')
+            }
+
+            # Match src/Makefile: compile each translation unit with CXXFLAGS,
+            # then apply PIE/thread/static-libstdc++ flags only while linking.
+            $linkArgs = $nativeObjects + @(
+                '-fPIE', '-pie', '-pthread', '-flto', '-static-libstdc++',
+                '-o', $nativeBinary.Replace('\', '/')
+            )
+            [IO.File]::WriteAllLines(
+                $responseFile, $linkArgs, (New-Object Text.UTF8Encoding($false)))
+            & $clangxx '@.ghostlock-clangxx.rsp'
+            if ($LASTEXITCODE -ne 0) {
+                throw "GhostLock C++ link failed with exit code $LASTEXITCODE"
+            }
+            if (-not (Test-Path -LiteralPath $nativeBinary)) {
+                throw "GhostLock C++ linker returned success without producing: $nativeBinary"
+            }
+        } finally {
+            Pop-Location
         }
     } finally {
         if (Test-Path -LiteralPath $responseFile) { Remove-Item -LiteralPath $responseFile -Force }

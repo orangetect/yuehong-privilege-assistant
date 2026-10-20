@@ -41,6 +41,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
@@ -48,6 +49,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -909,7 +911,7 @@ public class GhostLockActivity extends ComponentActivity {
             try {
                 File workDir = getFilesDir();
                 File binary = resolveBinary();
-                String managerPackage = prepareSelectedKsud(workDir);
+                File selectedKsud = prepareSelectedKsud(workDir);
                 if (profile.getSource() == GhostLockProfileSource.CACHE) {
                     if (!GhostLockProfileResolver.removeCached(this, profile.getRelease())) {
                         throw new IOException("cannot retire cached profile before activation attempt");
@@ -917,7 +919,7 @@ public class GhostLockActivity extends ComponentActivity {
                     appendLog("cached profile removed until this activation is confirmed successful");
                 }
                 nativeStarted = true;
-                code = runBinaryWithRetry(binary, workDir, profile.getBytes(), managerPackage);
+                code = runBinaryWithRetry(binary, workDir, profile.getBytes(), selectedKsud);
                 appendLog("exit code=" + code);
                 if (code == 0 && profile.getCacheText() != null) {
                     try {
@@ -997,7 +999,7 @@ public class GhostLockActivity extends ComponentActivity {
         throw new IOException("missing native binary: " + packaged.getAbsolutePath());
     }
 
-    private String prepareSelectedKsud(File workDir) throws IOException {
+    private File prepareSelectedKsud(File workDir) throws IOException {
         String managerPackage = KernelSuManagerSelection.INSTANCE.selectedPackage(this);
         File ksud = new File(workDir, "ksud");
         if (ksud.exists() && !ksud.delete()) {
@@ -1007,20 +1009,20 @@ public class GhostLockActivity extends ComponentActivity {
             if (ksud.exists() && !ksud.delete()) {
                 throw new IOException("cannot remove incomplete selected manager ksud");
             }
-            appendLog("manager libksud.so is not readable before root; will resolve "
-                    + managerPackage + " after root handoff");
-            return managerPackage;
+            throw new IOException("cannot stage libksud.so from selected KernelSU manager: "
+                    + managerPackage);
         }
         try {
             Os.chmod(ksud.getAbsolutePath(), 448);
         } catch (ErrnoException error) {
             throw new IOException("cannot make selected ksud executable", error);
         }
-        appendLog("staged selected manager ksud: " + managerPackage);
-        return managerPackage;
+        appendLog("staged selected manager ksud: " + managerPackage
+                + " at " + ksud.getAbsolutePath());
+        return ksud;
     }
 
-    private int runBinary(File binary, File workDir, byte[] profileBlob, String managerPackage)
+    private int runBinary(File binary, File workDir, byte[] profileBlob, File selectedKsud)
             throws IOException, InterruptedException {
         List<String> command = new ArrayList<>();
         command.add(binary.getAbsolutePath());
@@ -1028,13 +1030,15 @@ public class GhostLockActivity extends ComponentActivity {
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.directory(workDir);
         pb.redirectErrorStream(true);
+        File nativeLog = new File(workDir, ".ghostlock_native.log");
+        pb.redirectOutput(nativeLog);
         pb.environment().put("GHOSTLOCK_HOME", workDir.getAbsolutePath());
         pb.environment().put("GHOSTLOCK_KSU_LOG", new File(workDir, ".ghostlock_ksu.log").getAbsolutePath());
-        pb.environment().put("YHROOT_KSU_PACKAGE", managerPackage);
+        pb.environment().put("GHOSTLOCK_KSUD", selectedKsud.getAbsolutePath());
         pb.environment().put("TMPDIR", workDir.getAbsolutePath());
         pb.environment().put("HOME", workDir.getAbsolutePath());
-        appendLog("selected KernelSU manager package: " + managerPackage);
-        int code = runProcess(pb, profileBlob, 300);
+        appendLog("selected KernelSU manager binary: " + selectedKsud.getAbsolutePath());
+        int code = runProcessToFile(pb, profileBlob, 300, nativeLog);
         appendKernelSuLog(new File(workDir, ".ghostlock_ksu.log"));
         return code;
     }
@@ -1054,7 +1058,7 @@ public class GhostLockActivity extends ComponentActivity {
 
     /** Retry once in a fresh upstream process, preserving the resolved profile. */
     private int runBinaryWithRetry(
-            File binary, File workDir, byte[] profileBlob, String managerPackage)
+            File binary, File workDir, byte[] profileBlob, File selectedKsud)
             throws IOException, InterruptedException {
         int code = 1;
         for (int attempt = 1; attempt <= MAX_NATIVE_ATTEMPTS; attempt++) {
@@ -1063,12 +1067,12 @@ public class GhostLockActivity extends ComponentActivity {
                 appendLog("warning: stale KernelSU handoff log could not be removed");
             }
             appendLog("native attempt " + attempt + "/" + MAX_NATIVE_ATTEMPTS);
-            code = runBinary(binary, workDir, profileBlob, managerPackage);
+            code = runBinary(binary, workDir, profileBlob, selectedKsud);
             if (code == 0) {
                 return 0;
             }
             if (containsManagerUnavailableMarker(new File(workDir, ".ghostlock_ksu.log"))) {
-                throw new ManagerUnavailableException(managerPackage);
+                throw new ManagerUnavailableException(selectedKsud.getAbsolutePath());
             }
             if (!isRetryableNativeExit(code) || attempt == MAX_NATIVE_ATTEMPTS) {
                 break;
@@ -1098,9 +1102,9 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     private static final class ManagerUnavailableException extends IOException {
-        ManagerUnavailableException(String packageName) {
+        ManagerUnavailableException(String selectedKsudPath) {
             super("selected KernelSU manager has no executable ksud after root handoff: "
-                    + packageName);
+                    + selectedKsudPath);
         }
     }
     private static boolean isRetryableNativeExit(int code) {
@@ -1169,6 +1173,87 @@ public class GhostLockActivity extends ComponentActivity {
         return finished ? process.exitValue() : -1;
     }
 
+    private int runProcessToFile(
+            ProcessBuilder pb, byte[] stdin, long timeoutSeconds, File outputFile)
+            throws IOException, InterruptedException {
+        Process process = pb.start();
+        Thread reader = new Thread(() -> tailNativeOutput(outputFile, process), "ghostlock-log-tailer");
+        reader.setDaemon(true);
+        reader.start();
+
+        try (OutputStream stream = process.getOutputStream()) {
+            if (stdin != null) {
+                stream.write(stdin);
+                stream.flush();
+            }
+        }
+
+        boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroy();
+            if (!process.waitFor(5, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+            }
+        }
+        try {
+            reader.join(3000);
+            if (reader.isAlive()) {
+                reader.interrupt();
+                reader.join(1000);
+            }
+        } catch (InterruptedException error) {
+            reader.interrupt();
+            Thread.currentThread().interrupt();
+        }
+        return finished ? process.exitValue() : -1;
+    }
+
+    private void tailNativeOutput(File logFile, Process process) {
+        long offset = 0L;
+        ByteArrayOutputStream pending = new ByteArrayOutputStream();
+        while (true) {
+            boolean readAny = false;
+            if (logFile.isFile()) {
+                try (RandomAccessFile file = new RandomAccessFile(logFile, "r")) {
+                    if (offset > file.length()) {
+                        offset = 0L;
+                        pending.reset();
+                    }
+                    file.seek(offset);
+                    int value;
+                    while ((value = file.read()) != -1) {
+                        readAny = true;
+                        offset = file.getFilePointer();
+                        if (value == '\n') {
+                            String line = new String(pending.toByteArray(), StandardCharsets.UTF_8);
+                            pending.reset();
+                            if (line.endsWith("\r")) {
+                                line = line.substring(0, line.length() - 1);
+                            }
+                            appendLog(line, false);
+                        } else {
+                            pending.write(value);
+                        }
+                    }
+                } catch (IOException ignored) {
+                }
+            }
+
+            if (!process.isAlive() && !readAny) {
+                break;
+            }
+            try {
+                Thread.sleep(200L);
+            } catch (InterruptedException error) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        if (pending.size() > 0) {
+            appendLog(new String(pending.toByteArray(), StandardCharsets.UTF_8), false);
+        }
+    }
+
     private void copyLogs() {
         ClipboardManager cm = getSystemService(ClipboardManager.class);
         if (cm == null) {
@@ -1187,6 +1272,10 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     private void appendLog(String line) {
+        appendLog(line, true);
+    }
+
+    private void appendLog(String line, boolean writeAndroidLog) {
         if (line == null) {
             return;
         }
@@ -1200,7 +1289,9 @@ public class GhostLockActivity extends ComponentActivity {
             logView.append(display);
             logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
         });
-        android.util.Log.i(TAG, plain.trim());
+        if (writeAndroidLog) {
+            android.util.Log.i(TAG, plain.trim());
+        }
     }
 
     private int dp(int value) {

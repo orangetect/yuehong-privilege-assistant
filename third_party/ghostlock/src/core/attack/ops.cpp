@@ -224,7 +224,7 @@ namespace ghostlock::attack {
     }
 
     void write_root_script(void) {
-        std::string script(16384, '\0');
+        std::string script(12288, '\0');
         support::UniqueFd sfd(
             open((config::runtime_config_snapshot().root_script_path.c_str()), O_WRONLY | O_CREAT | O_TRUNC, 0755));
         if (!sfd.valid()) {
@@ -239,28 +239,14 @@ namespace ghostlock::attack {
             "HOME_DIR='%s'\n"
             "LOG='%s'\n"
             "SAFE_MODE=%d\n"
-            "KSUD=\"$HOME_DIR/ksud\"\n"
-            "MANAGER_PACKAGE=\"${YHROOT_KSU_PACKAGE:-}\"\n"
+            "KSUD='%s'\n"
+            "if [ -n \"$KSUD\" ] && [ ! -x \"$KSUD\" ]; then\n"
+            "  echo '[!] selected manager ksud unavailable after root handoff' >>\"$LOG\"\n"
+            "  exit 1\n"
+            "fi\n"
             "echo \"[*] root script start uid=$(id -u) euid=$(id -u)\" >\"$LOG\"\n"
             "chmod 644 \"$LOG\" 2>/dev/null\n"
             "echo \"[*] seccomp=$(grep Seccomp /proc/self/status 2>/dev/null | tr '\\n' ' ')\" >>\"$LOG\"\n"
-            "echo \"[*] selected manager=$MANAGER_PACKAGE\" >>\"$LOG\"\n"
-            "if [ -n \"$MANAGER_PACKAGE\" ] && [ ! -x \"$KSUD\" ]; then\n"
-            "  case \"$MANAGER_PACKAGE\" in\n"
-            "    me.weishu.kernelsu|me.weishu.kernelsu.pr)\n"
-            "      KSUD=$(find /data/app -path '*/me.weishu.kernelsu.pr*/lib/*/libksud.so' 2>/dev/null | head -1)\n"
-            "      if [ ! -x \"$KSUD\" ]; then KSUD=$(find /data/app -path '*/me.weishu.kernelsu-*/lib/*/libksud.so' 2>/dev/null | head -1); fi\n"
-            "      ;;\n"
-            "    com.resukisu.resukisu) KSUD=$(find /data/app -path '*/com.resukisu.resukisu*/lib/*/libksud.so' 2>/dev/null | head -1) ;;\n"
-            "    org.bakasu.bakasu) KSUD=$(find /data/app -path '*/org.bakasu.bakasu-*/lib/*/libksud.so' 2>/dev/null | head -1) ;;\n"
-            "    com.kowx712.supermanager) KSUD=$(find /data/app -path '*/com.kowx712.supermanager*/lib/*/libksud.so' 2>/dev/null | head -1) ;;\n"
-            "  esac\n"
-            "  if [ ! -x \"$KSUD\" ] && [ -x /data/adb/ksu/bin/ksud ]; then KSUD=/data/adb/ksu/bin/ksud; fi\n"
-            "  if [ ! -x \"$KSUD\" ]; then\n"
-            "    echo '[!] selected manager ksud unavailable after root handoff' >>\"$LOG\"\n"
-            "    exit 1\n"
-            "  fi\n"
-            "fi\n"
             "if [ ! -x \"$KSUD\" ]; then\n"
             "  KSUD=$(find /data/app -path '*/me.weishu.kernelsu.pr*/lib/arm64/libksud.so' 2>/dev/null | head -1)\n"
             "fi\n"
@@ -409,11 +395,7 @@ namespace ghostlock::attack {
             "  fi\n"
             "  echo \"[*] late-load kmi=$KMI\" >>\"$LOG\"\n"
             "  chmod 755 \"$KSUD\" 2>/dev/null\n"
-            "  if [ -n \"$MANAGER_PACKAGE\" ]; then\n"
-            "    \"$KSUD\" late-load --package-name \"$MANAGER_PACKAGE\" --kmi \"$KMI\" --allow-shell >>\"$LOG\" 2>&1\n"
-            "  else\n"
-            "    \"$KSUD\" late-load --kmi \"$KMI\" --allow-shell >>\"$LOG\" 2>&1\n"
-            "  fi\n"
+            "  \"$KSUD\" late-load --kmi \"$KMI\" --allow-shell >>\"$LOG\" 2>&1\n"
             "  echo \"[*] late-load exit=$?\" >>\"$LOG\"\n"
             "fi\n"
             "echo \"[*] temp su uid=$(id -u); watching kernelsu.ko\" >>\"$LOG\"\n"
@@ -437,6 +419,7 @@ namespace ghostlock::attack {
             (config::runtime_config_snapshot().home_dir.c_str()),
             (config::runtime_config_snapshot().ksu_log_path.c_str()),
             session::g_exploit_session.profile.safe_mode() ? 1 : 0,
+            (config::runtime_config_snapshot().ksud_path.c_str()),
             (config::runtime_config_snapshot().debug_dir.c_str()));
         if (n < 0 || n >= static_cast<int32_t>(script.size())) {
             pr_warning("root script too long\n");

@@ -92,6 +92,10 @@ namespace ghostlock::session::frontend {
             pr_warning("temporary root ready; KernelSU module load pending\n");
         else
             pr_warning("temporary root ready; KernelSU module not loaded (W3 seccomp clear failed)\n");
+        if (!kernelsu_ready) {
+            pr_error("KernelSU handoff failed; temporary root is not activation success\n");
+            return StageResult::Failed;
+        }
         return StageResult::Done;
     }
 } // namespace ghostlock::session::frontend
