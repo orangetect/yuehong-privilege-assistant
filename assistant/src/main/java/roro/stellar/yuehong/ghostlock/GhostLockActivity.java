@@ -40,6 +40,7 @@ import android.widget.EditText;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -54,6 +55,7 @@ import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -73,6 +75,16 @@ public class GhostLockActivity extends ComponentActivity {
     private static final String PREF_BUILTIN_OFFSET_STATUS = "builtin_offset_status";
     private static final String STATUS_FAILED_PREFIX = "failed:";
     private static final String STATUS_SUCCESS_PREFIX = "success:";
+    private static final String RUN_STATE_FILE_NAME = ".ghostlock_run_state.json";
+    private static final String RUN_STATE_STATUS_MARKER = "\u001eGLK_STATUS";
+    private static final String RUN_STATE_STATUS_ACK = "\u001eGLK_STATUS_ACK\n";
+    private static final String RUN_STATE_STATUS_DISABLED = "\u001eGLK_STATUS_DISABLED";
+    private static final String RUN_STATE_NOT_STARTED = "not_start";
+    private static final String RUN_STATE_IN_PROGRESS = "in_progress";
+    private static final String RUN_STATE_COMPLETED = "completed";
+    private static final String[] RUN_STATE_STEPS = {
+            "w1a", "w1b", "w2a", "w2b", "w3a", "w3b", "w3c"
+    };
     private static final int MAX_NATIVE_ATTEMPTS = 2;
     private static final long NATIVE_RETRY_DELAY_MS = 1500L;
     private static final String MANAGER_UNAVAILABLE_MARKER =
@@ -91,6 +103,8 @@ public class GhostLockActivity extends ComponentActivity {
     private final AtomicBoolean automaticFlowRunning = new AtomicBoolean(false);
     private final StringBuilder logBuffer = new StringBuilder();
     private final Map<View, ValueAnimator> viewAnimators = new HashMap<>();
+    private final Object runStateLock = new Object();
+    private final Map<String, String> runSteps = new LinkedHashMap<>();
     private TextView deviceInfo;
     private TextView logView;
     private ScrollView logScroll;
@@ -246,6 +260,7 @@ public class GhostLockActivity extends ComponentActivity {
         deviceInfo.setText(buildDeviceSummary());
         applyKernelStatus();
         setRunState(RunState.IDLE);
+        reportPreviousRunInterruption();
 
         copyButton.setOnClickListener(v -> copyLogs());
         autoRootButton.setOnClickListener(v -> startSelectedPrivilege());
@@ -946,6 +961,7 @@ public class GhostLockActivity extends ComponentActivity {
                     appendLog("cached profile removed until this activation is confirmed successful");
                 }
                 nativeStarted = true;
+                resetRunState();
                 code = runBinaryWithRetry(binary, workDir, profile.getBytes(), selectedKsud);
                 appendLog("exit code=" + code);
                 if (code == 0 && profile.getCacheText() != null) {
@@ -1054,6 +1070,7 @@ public class GhostLockActivity extends ComponentActivity {
         List<String> command = new ArrayList<>();
         command.add(binary.getAbsolutePath());
         command.add("--ghostlock-app-call");
+        command.add("--enable-status-record");
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.directory(workDir);
         pb.redirectErrorStream(true);
@@ -1204,15 +1221,34 @@ public class GhostLockActivity extends ComponentActivity {
             ProcessBuilder pb, byte[] stdin, long timeoutSeconds, File outputFile)
             throws IOException, InterruptedException {
         Process process = pb.start();
-        Thread reader = new Thread(() -> tailNativeOutput(outputFile, process), "ghostlock-log-tailer");
+        OutputStream processInput = process.getOutputStream();
+        Thread reader = new Thread(
+                () -> tailNativeOutput(outputFile, process, processInput), "ghostlock-log-tailer");
         reader.setDaemon(true);
         reader.start();
 
-        try (OutputStream stream = process.getOutputStream()) {
+        try {
             if (stdin != null) {
-                stream.write(stdin);
-                stream.flush();
+                synchronized (processInput) {
+                    int length = stdin.length;
+                    processInput.write(new byte[] {
+                            (byte) (length >>> 24),
+                            (byte) (length >>> 16),
+                            (byte) (length >>> 8),
+                            (byte) length,
+                    });
+                    processInput.write(stdin);
+                    processInput.flush();
+                }
             }
+        } catch (IOException error) {
+            try {
+                processInput.close();
+            } catch (IOException ignored) {
+            }
+            process.destroyForcibly();
+            reader.interrupt();
+            throw error;
         }
 
         boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
@@ -1221,6 +1257,10 @@ public class GhostLockActivity extends ComponentActivity {
             if (!process.waitFor(5, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
             }
+        }
+        try {
+            processInput.close();
+        } catch (IOException ignored) {
         }
         try {
             reader.join(3000);
@@ -1235,7 +1275,7 @@ public class GhostLockActivity extends ComponentActivity {
         return finished ? process.exitValue() : -1;
     }
 
-    private void tailNativeOutput(File logFile, Process process) {
+    private void tailNativeOutput(File logFile, Process process, OutputStream processInput) {
         long offset = 0L;
         ByteArrayOutputStream pending = new ByteArrayOutputStream();
         while (true) {
@@ -1257,7 +1297,9 @@ public class GhostLockActivity extends ComponentActivity {
                             if (line.endsWith("\r")) {
                                 line = line.substring(0, line.length() - 1);
                             }
-                            appendLog(line, false);
+                            if (!handleNativeStatusLine(line, processInput)) {
+                                appendLog(line, false);
+                            }
                         } else {
                             pending.write(value);
                         }
@@ -1277,8 +1319,123 @@ public class GhostLockActivity extends ComponentActivity {
             }
         }
         if (pending.size() > 0) {
-            appendLog(new String(pending.toByteArray(), StandardCharsets.UTF_8), false);
+            String line = new String(pending.toByteArray(), StandardCharsets.UTF_8);
+            if (!handleNativeStatusLine(line, processInput)) {
+                appendLog(line, false);
+            }
         }
+    }
+
+    private void reportPreviousRunInterruption() {
+        File stateFile = new File(getFilesDir(), RUN_STATE_FILE_NAME);
+        if (!stateFile.isFile()) {
+            return;
+        }
+        try (BufferedReader reader = new BufferedReader(new FileReader(stateFile))) {
+            StringBuilder contents = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                contents.append(line).append('\n');
+            }
+            JSONObject steps = new JSONObject(contents.toString()).optJSONObject("steps");
+            if (steps == null) {
+                return;
+            }
+            for (String step : RUN_STATE_STEPS) {
+                if (RUN_STATE_IN_PROGRESS.equals(steps.optString(step))) {
+                    appendLog("previous GhostLock run was interrupted during native stage " + step
+                            + "; this may help diagnose an unexpected reboot");
+                    return;
+                }
+            }
+        } catch (Exception error) {
+            appendLog("could not read previous GhostLock run state: " + error.getMessage());
+        }
+    }
+
+    private void resetRunState() {
+        synchronized (runStateLock) {
+            runSteps.clear();
+            for (String step : RUN_STATE_STEPS) {
+                runSteps.put(step, RUN_STATE_NOT_STARTED);
+            }
+            persistRunStateLocked();
+        }
+    }
+
+    private boolean persistRunStateLocked() {
+        StringBuilder json = new StringBuilder();
+        json.append("{\n")
+                .append("  \"schema_version\": 1,\n")
+                .append("  \"updated_at\": ").append(System.currentTimeMillis()).append(",\n")
+                .append("  \"steps\": {\n");
+        for (int i = 0; i < RUN_STATE_STEPS.length; i++) {
+            String step = RUN_STATE_STEPS[i];
+            json.append("    \"").append(step).append("\": \"")
+                    .append(runSteps.get(step)).append('"');
+            if (i + 1 < RUN_STATE_STEPS.length) {
+                json.append(',');
+            }
+            json.append('\n');
+        }
+        json.append("  }\n}\n");
+        try (FileOutputStream output = new FileOutputStream(
+                new File(getFilesDir(), RUN_STATE_FILE_NAME))) {
+            output.write(json.toString().getBytes(StandardCharsets.UTF_8));
+            output.flush();
+            output.getFD().sync();
+            return true;
+        } catch (IOException error) {
+            appendLog("could not persist GhostLock run state: " + error.getMessage());
+            return false;
+        }
+    }
+
+    private boolean recordRunStatus(String step, String status) {
+        synchronized (runStateLock) {
+            if (!runSteps.containsKey(step)) {
+                return true;
+            }
+            runSteps.put(step, status);
+            return persistRunStateLocked();
+        }
+    }
+
+    private void clearRunState() {
+        File stateFile = new File(getFilesDir(), RUN_STATE_FILE_NAME);
+        if (stateFile.exists() && !stateFile.delete()) {
+            appendLog("could not clear disabled GhostLock run state");
+        }
+    }
+
+    /** Consumes status protocol lines after persisting them, then acknowledges Native. */
+    private boolean handleNativeStatusLine(String line, OutputStream processInput) {
+        if (!line.startsWith(RUN_STATE_STATUS_MARKER)) {
+            return false;
+        }
+        if (line.startsWith(RUN_STATE_STATUS_DISABLED)) {
+            clearRunState();
+            return true;
+        }
+
+        String[] parts = line.substring(RUN_STATE_STATUS_MARKER.length()).trim().split("\\s+");
+        if (parts.length < 2) {
+            return true;
+        }
+        String status = parts[1];
+        if ((RUN_STATE_IN_PROGRESS.equals(status) || RUN_STATE_COMPLETED.equals(status))
+                && !recordRunStatus(parts[0], status)) {
+            return true;
+        }
+        try {
+            synchronized (processInput) {
+                processInput.write(RUN_STATE_STATUS_ACK.getBytes(StandardCharsets.UTF_8));
+                processInput.flush();
+            }
+        } catch (IOException error) {
+            appendLog("could not acknowledge GhostLock stage status: " + error.getMessage());
+        }
+        return true;
     }
 
     private void copyLogs() {
