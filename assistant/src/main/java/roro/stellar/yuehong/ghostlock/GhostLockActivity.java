@@ -1,6 +1,7 @@
 package roro.stellar.yuehong.ghostlock;
 
 import roro.stellar.yuehong.R;
+import com.ghostlock.app.data.ota.OtaPayloadExtractor;
 import roro.stellar.yuehong.shell.GhostLockOtaApi;
 import roro.stellar.yuehong.shell.KernelSuManagerSelection;
 
@@ -275,7 +276,14 @@ public class GhostLockActivity extends ComponentActivity {
                 .commit();
     }
 
-    private boolean isValidOtaUrl(String value) { return value.startsWith("https://") || value.startsWith("http://"); }
+    private boolean isValidOtaUrl(String value) {
+        return isRemoteOtaUrl(value);
+    }
+
+    private static boolean isRemoteOtaUrl(String value) {
+        return value != null && (value.regionMatches(true, 0, "https://", 0, 8)
+                || value.regionMatches(true, 0, "http://", 0, 7));
+    }
 
     @Override
     public void onBackPressed() {
@@ -496,6 +504,8 @@ public class GhostLockActivity extends ComponentActivity {
         worker.execute(() -> {
             int code = 1;
             GhostLockResolvedProfile profile = null;
+            File otaBootImage = null;
+            File otaXblConfigImage = null;
             File parsed = new File(getFilesDir(), "ghostlock_profile_parse.tmp");
             try {
                 File binary = new File(getApplicationInfo().nativeLibraryDir, EXTRACT_NAME);
@@ -507,7 +517,22 @@ public class GhostLockActivity extends ComponentActivity {
                     throw new IOException("cannot remove stale profile output");
                 }
                 List<String> args = new ArrayList<>();
-                args.addAll(sourceArguments);
+                String input = sourceArguments.isEmpty() ? "" : sourceArguments.get(0);
+                if (isRemoteOtaUrl(input)) {
+                    appendLog("extracting OTA partitions with upstream Android range parser");
+                    OtaPayloadExtractor.ExtractedPartitions partitions =
+                            GhostLockOtaPartitionExtractor.extractBlocking(
+                                    input, workDir, line -> appendLog("OTA: " + line));
+                    otaBootImage = partitions.getBootFile();
+                    otaXblConfigImage = partitions.getXblConfigFile();
+                    args.add(otaBootImage.getAbsolutePath());
+                    if (otaXblConfigImage != null) {
+                        args.add("--xbl-config");
+                        args.add(otaXblConfigImage.getAbsolutePath());
+                    }
+                } else {
+                    args.addAll(sourceArguments);
+                }
                 args.add("--format");
                 args.add("conf");
                 args.add("--out");
@@ -529,6 +554,8 @@ public class GhostLockActivity extends ComponentActivity {
                         + ": " + error.getMessage());
             } finally {
                 parsed.delete();
+                if (otaBootImage != null) otaBootImage.delete();
+                if (otaXblConfigImage != null) otaXblConfigImage.delete();
                 if (clearLocalImages) {
                     clearLocalImageFiles();
                 }
