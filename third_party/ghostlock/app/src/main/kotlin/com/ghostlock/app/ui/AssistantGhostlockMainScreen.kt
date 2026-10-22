@@ -244,43 +244,25 @@ internal fun AssistantGhostlockMainScreen(
                             )
                         }
                     }
-                    Row(
+                    OutlinedTextField(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        OutlinedTextField(
-                            modifier = Modifier.weight(1f),
-                            value = otaUrl,
-                            onValueChange = { otaUrl = it },
-                            enabled = !state.running,
-                            placeholder = {
-                                Text(stringResource(R.string.assistant_home_ota_url_hint))
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Uri,
-                                imeAction = ImeAction.Done,
-                            ),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                            ),
-                        )
-                        OutlinedButton(
-                            modifier = Modifier.height(56.dp),
-                            enabled = !state.running,
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = ButtonDefaults.ContentPadding,
-                            onClick = {
-                                if (otaUrl.isBlank()) actions.onParseOta()
-                                else actions.onParseOta(otaUrl.trim())
-                            },
-                        ) {
-                            Text(stringResource(R.string.action_parse_ota), maxLines = 1)
-                        }
-                    }
+                        value = otaUrl,
+                        onValueChange = { otaUrl = it },
+                        enabled = !state.running,
+                        placeholder = {
+                            Text(stringResource(R.string.assistant_home_ota_url_hint))
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = ImeAction.Done,
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        ),
+                    )
                 }
             }
 
