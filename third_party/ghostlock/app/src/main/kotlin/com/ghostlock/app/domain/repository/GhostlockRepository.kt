@@ -8,6 +8,7 @@ import com.ghostlock.app.domain.model.OffsetCandidate
 import com.ghostlock.app.domain.model.OffsetImportResult
 import com.ghostlock.app.domain.model.ParseResult
 import com.ghostlock.app.domain.model.ProfileConfig
+import com.ghostlock.app.domain.model.RomOtaSource
 import com.ghostlock.app.domain.model.UserProfileFile
 
 interface GhostlockRepository {
@@ -49,6 +50,9 @@ interface GhostlockRepository {
         overwrite: Boolean = false,
         onLog: (String) -> Unit = {},
     ): ParseResult
+
+    /** Resolves the current device's full OTA URL through the assistant's signed ROM V2 endpoint. */
+    suspend fun resolveRomOtaSource(): RomOtaSource
 
     suspend fun readDocument(uri: String): String
 

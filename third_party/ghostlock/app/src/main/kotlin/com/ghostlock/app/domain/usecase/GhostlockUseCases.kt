@@ -27,6 +27,10 @@ class ParseSourceUseCase(private val repository: GhostlockRepository) {
     ) = repository.parseSource(input, xblPath, uefiPath, vendorBootPath, overwrite, onLog)
 }
 
+class ResolveRomOtaSourceUseCase(private val repository: GhostlockRepository) {
+    suspend operator fun invoke() = repository.resolveRomOtaSource()
+}
+
 class RunExploitUseCase(private val repository: GhostlockRepository) {
     suspend operator fun invoke(pair: CpuPair, useShizuku: Boolean, onLog: (String) -> Unit) =
         if (useShizuku) repository.runExploitWithShizuku(pair, onLog)

@@ -20,6 +20,7 @@ import com.ghostlock.app.domain.usecase.ImportOffsetsUseCase
 import com.ghostlock.app.domain.usecase.LoadKernelSnapshotUseCase
 import com.ghostlock.app.domain.usecase.ParseSourceUseCase
 import com.ghostlock.app.domain.usecase.ReadDocumentUseCase
+import com.ghostlock.app.domain.usecase.ResolveRomOtaSourceUseCase
 import com.ghostlock.app.domain.usecase.RunExploitUseCase
 import com.ghostlock.app.domain.usecase.SelectCpuPairUseCase
 import java.util.Locale
@@ -65,6 +66,7 @@ class GhostlockViewModel(
     private val selectCpuPairUseCase = SelectCpuPairUseCase(repository)
     private val importOffsetsUseCase = ImportOffsetsUseCase(repository)
     private val parseSourceUseCase = ParseSourceUseCase(repository)
+    private val resolveRomOtaSourceUseCase = ResolveRomOtaSourceUseCase(repository)
     private val readDocumentUseCase = ReadDocumentUseCase(repository)
     private val runExploitUseCase = RunExploitUseCase(repository)
     private val formatLog = FormatLogUseCase()
@@ -864,18 +866,16 @@ class GhostlockViewModel(
         mutableState.update { it.copy(selectedManagerPackage = pkg, managerPickerVisible = false) }
     }
 
-    fun onRun() = runExploit()
+    fun onRun() = runExploit("")
+
+    fun onRun(otaUrl: String) = runExploit(otaUrl)
 
     /** Explains why the run button is greyed out. */
     fun onProfileInvalid() {
         val state = state.value
-        val messageRes = when {
-            !state.executionHasProfile -> R.string.run_blocked_no_profile
-            state.shizukuEnabled && state.shizukuStatus != ShizukuStatus.READY ->
-                R.string.run_blocked_shizuku
-
-            else -> R.string.profile_invalid
-        }
+        val messageRes = if (
+            state.shizukuEnabled && state.shizukuStatus != ShizukuStatus.READY
+        ) R.string.run_blocked_shizuku else R.string.profile_invalid
         send(GhostlockEffect.Toast(messageRes))
     }
 
@@ -893,15 +893,8 @@ class GhostlockViewModel(
         }
     }
 
-    private fun runExploit() {
+    private fun runExploit(manualOtaUrl: String) {
         val snapshot = kernelSnapshot ?: return
-        if (!snapshot.kernelSupported) {
-            if (beginOperation()) {
-                appendLog("result: exploit chain unsupported by this kernel")
-                endOperation()
-            }
-            return
-        }
         val useShizuku = snapshot.shizukuEnabled
         if (useShizuku && snapshot.shizukuStatus != ShizukuStatus.READY) {
             onStatusClick()
@@ -914,12 +907,116 @@ class GhostlockViewModel(
         appendLog("cpu pair: ${snapshot.cpuPairLabels.getOrElse(snapshot.selectedCpuPair) { pair.toString() }}")
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                if (!prepareProfileForRun(snapshot, pair, manualOtaUrl)) return@launch
                 val code = runExploitUseCase(pair, useShizuku, ::appendLog)
                 appendLog(if (code == 0) "result: exploit completed" else "result: exploit failed (exit code=$code)")
                 appendLog("exit code=$code")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                appendLog("run preparation failed: ${error.message}")
+                appendLog("result: exploit was not started")
             } finally {
                 endOperation()
                 send(GhostlockEffect.KeepScreenAwake(false))
+            }
+        }
+    }
+
+    private suspend fun prepareProfileForRun(
+        snapshot: KernelSnapshot,
+        pair: CpuPair,
+        manualOtaUrl: String,
+    ): Boolean {
+        val current = profileController.load(snapshot.kernelRelease, pair)
+        if (snapshot.kernelSupported && current.hasProfile) {
+            if (current.invalidPaths.isNotEmpty()) {
+                appendLog("profile has ${current.invalidPaths.size} invalid field(s): ${current.invalidPaths.take(6).joinToString()}")
+                appendLog("result: profile must be fixed before exploit")
+                return false
+            }
+            return true
+        }
+        if (!snapshot.kernelSupported && current.hasProfile) {
+            appendLog("selected profile does not match this kernel; resolving a matching profile")
+        }
+
+        val suppliedUrl = manualOtaUrl.trim()
+        val source = if (suppliedUrl.isNotEmpty()) {
+            if (!suppliedUrl.startsWith("https://", true) && !suppliedUrl.startsWith("http://", true)) {
+                appendLog("error: manual OTA URL must use HTTP or HTTPS")
+                appendLog("result: exploit was not started")
+                return false
+            }
+            appendLog("no matching local profile; using the manually entered OTA URL")
+            suppliedUrl
+        } else {
+            appendLog("no matching local profile; requesting a full OTA URL from ROM V2")
+            val resolved = resolveRomOtaSourceUseCase()
+            appendLog("ROM V2 returned an OTA URL${resolved.provider.takeIf(String::isNotBlank)?.let { " (provider=$it)" }.orEmpty()}; parsing package")
+            resolved.url
+        }
+
+        return when (val parsed = parseSourceUseCase(source, onLog = ::appendLog)) {
+            is ParseResult.Parsed -> {
+                if (snapshot.kernelRelease !in parsed.releases) {
+                    appendLog("OTA profile does not match this kernel: ${parsed.releases.joinToString()}")
+                    appendLog("result: exploit was not started")
+                    false
+                } else {
+                    val documentName = parsed.documentName
+                    if (documentName == null) {
+                        appendLog("OTA parser did not save a profile document")
+                        appendLog("result: exploit was not started")
+                        return false
+                    }
+                    val config = profileController.selectUserProfile(
+                        documentName,
+                        snapshot.kernelRelease,
+                        pair,
+                    )
+                    applyExecutionConfig(config, preserveEditing = false)
+                    applyAdvancedConfig(config, preserveEditing = false)
+                    refreshUserProfiles()
+                    refreshSnapshot()
+                    when {
+                        parsed.missing.isNotEmpty() -> {
+                            appendLog("OTA profile is incomplete; missing ${parsed.missing.joinToString()}")
+                            appendLog("result: exploit was not started")
+                            false
+                        }
+
+                        !config.hasProfile || config.invalidPaths.isNotEmpty() -> {
+                            appendLog("generated profile is invalid: ${config.invalidPaths.take(6).joinToString()}")
+                            appendLog("result: exploit was not started")
+                            false
+                        }
+
+                        else -> {
+                            appendLog("auto-loaded OTA profile: $documentName")
+                            true
+                        }
+                    }
+                }
+            }
+
+            is ParseResult.RequiresOverwrite -> {
+                pendingConfirmation = PendingConfirmation.Parse(source, null, null, null)
+                appendLog("OTA profile conflicts with a saved profile; confirm overwrite before starting")
+                showOverwriteDialog(parsed.releases)
+                false
+            }
+
+            ParseResult.AlreadyPresent -> {
+                appendLog("OTA parser found no new profile to load")
+                appendLog("result: exploit was not started")
+                false
+            }
+
+            is ParseResult.Failed -> {
+                parsed.reason?.let { appendLog("OTA parse failed: $it") }
+                appendLog("result: ${parseFailureResult(parsed.code)}")
+                false
             }
         }
     }

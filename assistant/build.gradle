@@ -32,6 +32,9 @@ android {
         buildConfigField 'String', 'SERVER_CHANNEL_ENDPOINT', buildConfigString(serverProperty('channelEndpoint'))
         buildConfigField 'String', 'SERVER_PROTOCOL_V2_PUBLIC_KEY', buildConfigString(serverProperty('protocolV2PublicKey'))
         buildConfigField 'String', 'SERVER_PROTOCOL_V2_KEY_ID', buildConfigString(serverProperty('protocolV2KeyId'))
+        buildConfigField 'String', 'ROM_PROTOCOL_V2_ENDPOINT', buildConfigString(serverProperty('romProtocolV2Endpoint'))
+        buildConfigField 'String', 'ROM_PROTOCOL_V2_PUBLIC_KEY', buildConfigString(serverProperty('romProtocolV2PublicKey'))
+        buildConfigField 'String', 'ROM_PROTOCOL_V2_KEY_ID', buildConfigString(serverProperty('romProtocolV2KeyId'))
         buildConfigField 'String', 'SERVER_CHANNEL_JOIN_URL', buildConfigString(serverProperty('channelJoinUrl'))
         buildConfigField 'String', 'SERVER_UPDATE_URL', buildConfigString(serverProperty('updateUrl'))
 

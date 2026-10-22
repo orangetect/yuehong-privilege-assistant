@@ -3,6 +3,7 @@ package com.ghostlock.app.data
 import android.annotation.SuppressLint
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.core.content.edit
@@ -18,6 +19,7 @@ import com.ghostlock.app.data.ota.OtaPayloadExtractor
 import com.ghostlock.app.domain.model.OffsetImportResult
 import com.ghostlock.app.domain.model.ParseResult
 import com.ghostlock.app.domain.model.ProfileConfig
+import com.ghostlock.app.domain.model.RomOtaSource
 import com.ghostlock.app.domain.model.UserProfileFile
 import com.ghostlock.app.domain.repository.GhostlockRepository
 import com.ghostlock.app.domain.repository.ProfileConfigController
@@ -30,6 +32,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -429,6 +432,33 @@ class AndroidGhostlockRepository(context: Context) : GhostlockRepository {
             tempBootFile?.delete()
             tempXblFile?.delete()
         }
+    }
+
+    override suspend fun resolveRomOtaSource(): RomOtaSource = withContext(Dispatchers.IO) {
+        val authority = appContext.packageName + RomOtaProviderContract.AUTHORITY_SUFFIX
+        val response = appContext.contentResolver.call(
+            Uri.Builder().scheme("content").authority(authority).build(),
+            RomOtaProviderContract.METHOD_RESOLVE,
+            null,
+            null,
+        ) ?: throw IOException("ROM V2 provider did not return a response")
+        if (!response.getBoolean(RomOtaProviderContract.KEY_SUCCESS)) {
+            throw IOException(
+                response.getString(RomOtaProviderContract.KEY_ERROR)
+                    ?.trim()
+                    .orEmpty()
+                    .ifBlank { "ROM V2 did not return an OTA URL" },
+            )
+        }
+        val otaUrl = response.getString(RomOtaProviderContract.KEY_URL)?.trim().orEmpty()
+        val scheme = runCatching { URL(otaUrl).protocol.lowercase(Locale.ROOT) }.getOrDefault("")
+        if (scheme != "https" && scheme != "http") {
+            throw IOException("ROM V2 provider returned an invalid OTA URL")
+        }
+        RomOtaSource(
+            url = otaUrl,
+            provider = response.getString(RomOtaProviderContract.KEY_PROVIDER).orEmpty().trim(),
+        )
     }
 
     override suspend fun runExploit(pair: CpuPair, onLog: (String) -> Unit): Int =

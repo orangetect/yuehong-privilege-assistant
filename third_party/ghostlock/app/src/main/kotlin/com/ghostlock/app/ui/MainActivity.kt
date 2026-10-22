@@ -170,6 +170,7 @@ private fun GhostlockRoute(
         state = state,
         actions = object : GhostlockActions {
             override fun onRun() = viewModel.onRun()
+            override fun onRun(otaUrl: String) = viewModel.onRun(otaUrl)
             override fun onProfileInvalid() = viewModel.onProfileInvalid()
             override fun onStatusClick() = viewModel.onStatusClick()
             override fun onCloseExecutionSheet() = viewModel.onCloseExecutionSheet()

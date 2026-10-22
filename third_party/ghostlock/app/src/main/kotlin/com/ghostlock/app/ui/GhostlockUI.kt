@@ -185,6 +185,7 @@ data class GhostlockLogLine(val text: String, val color: Int)
 
 interface GhostlockActions {
     fun onRun()
+    fun onRun(otaUrl: String) = onRun()
     fun onProfileInvalid()
     fun onStatusClick()
     fun onCloseExecutionSheet()

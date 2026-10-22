@@ -131,6 +131,7 @@ function Assert-ServerProperties {
     $required = @(
         'compatibilityEndpoint', 'moduleId', 'protocolV2Endpoint',
         'channelEndpoint', 'protocolV2PublicKey', 'protocolV2KeyId',
+        'romProtocolV2Endpoint', 'romProtocolV2PublicKey', 'romProtocolV2KeyId',
         'channelJoinUrl', 'updateUrl'
     )
     $values = @{}

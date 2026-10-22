@@ -22,6 +22,11 @@ data class KernelSnapshot(
     val shizukuStatus: ShizukuStatus,
 )
 
+data class RomOtaSource(
+    val url: String,
+    val provider: String,
+)
+
 enum class ShizukuStatus { NOT_REQUIRED, NOT_RUNNING, PERMISSION_REQUIRED, READY }
 
 enum class LogTone { Default, Error, Success, Warning, Progress, Kotlin, Shizuku }

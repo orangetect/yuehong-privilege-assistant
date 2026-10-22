@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
+        <provider
+            android:name=".shell.GhostLockOtaProvider"
+            android:authorities="${applicationId}.ghostlock.ota"
+            android:exported="false" />
         <activity
             android:name=".dfroot.DfRootActivity"
             android:exported="false"

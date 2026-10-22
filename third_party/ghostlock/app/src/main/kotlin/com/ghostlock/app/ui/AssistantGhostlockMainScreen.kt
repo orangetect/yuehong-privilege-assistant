@@ -119,9 +119,7 @@ internal fun AssistantGhostlockMainScreen(
     MaterialTheme(colorScheme = colorScheme) {
         var otaUrl by rememberSaveable { mutableStateOf("") }
         var showSettings by rememberSaveable { mutableStateOf(false) }
-        val canRun = state.kernelSupported &&
-                state.executionHasProfile &&
-                state.profileInvalidPaths.isEmpty() &&
+        val canRun = (!state.kernelSupported || state.profileInvalidPaths.isEmpty()) &&
                 (!state.shizukuEnabled || state.shizukuStatus == ShizukuStatus.READY)
         val deviceSummary = listOf(state.deviceName, state.socName)
             .filter(String::isNotBlank)
@@ -208,7 +206,7 @@ internal fun AssistantGhostlockMainScreen(
                                 enabled = canRun && !state.running,
                                 shape = RoundedCornerShape(12.dp),
                                 contentPadding = ButtonDefaults.ContentPadding,
-                                onClick = actions::onRun,
+                                onClick = { actions.onRun(otaUrl.trim()) },
                             ) {
                                 Text(
                                     text = stringResource(
