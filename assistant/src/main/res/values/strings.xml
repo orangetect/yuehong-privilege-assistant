@@ -148,7 +148,7 @@
     <string name="jailbreak_activation_success_message">The KernelSU activation script completed successfully.</string>
     <string name="jailbreak_activation_failure_title">KernelSU activation failed</string>
     <string name="jailbreak_activation_failure_message">Root escalation succeeded, but KernelSU activation did not complete.</string>
-    <string name="mode_ghostlock_open">Open GhostLock</string>
+    <string name="mode_ghostlock_open">GhostLock</string>
     <string name="mode_stellar_title">General privilege assistant · Stellar</string>
     <string name="mode_stellar_body">Uses manually selected bundled privilege files, local file import, wireless-debugging self-activation and the command console.</string>
     <string name="mode_stellar_open">Stellar</string>

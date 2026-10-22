@@ -146,7 +146,7 @@
     <string name="jailbreak_activation_success_message">KernelSU 激活脚本已成功执行。</string>
     <string name="jailbreak_activation_failure_title">KernelSU 激活失败</string>
     <string name="jailbreak_activation_failure_message">设备提权已成功，但 KernelSU 越狱模式未能完成激活。</string>
-    <string name="mode_ghostlock_open">打开 GhostLock</string>
+    <string name="mode_ghostlock_open">GhostLock</string>
     <string name="mode_stellar_title">通用提权助手 · Stellar</string>
     <string name="mode_stellar_body">使用手动选择的内置提权文件、本地文件导入、无线调试自激活和命令控制台。</string>
     <string name="mode_stellar_open">Stellar</string>
