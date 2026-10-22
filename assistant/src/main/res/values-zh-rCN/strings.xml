@@ -146,16 +146,10 @@
     <string name="jailbreak_activation_success_message">KernelSU 激活脚本已成功执行。</string>
     <string name="jailbreak_activation_failure_title">KernelSU 激活失败</string>
     <string name="jailbreak_activation_failure_message">设备提权已成功，但 KernelSU 越狱模式未能完成激活。</string>
-    <string name="mode_ghostlock_title">6 系内核 · GhostLock</string>
-    <string name="mode_ghostlock_body">直接运行 GhostLock 上游核心；当前内核配置按缓存、APK 内置偏移、完整 OTA 的顺序使用，并交给所选 KernelSU 管理器完成接管。</string>
-    <string name="mode_ghostlock_android_required">需要 Android 15 及以上</string>
-    <string name="mode_ghostlock_kernel_match">当前：%1$s</string>
-    <string name="mode_ghostlock_kernel_other">其他内核：%1$s</string>
-    <string name="mode_ghostlock_open">GhostLock</string>
+    <string name="mode_ghostlock_open">打开 GhostLock</string>
     <string name="mode_stellar_title">通用提权助手 · Stellar</string>
     <string name="mode_stellar_body">使用手动选择的内置提权文件、本地文件导入、无线调试自激活和命令控制台。</string>
     <string name="mode_stellar_open">Stellar</string>
-    <string name="mode_ghostlock_kernel_required">仅支持 6 系内核</string>
     <string name="mode_dfroot_open">DirtyFrag</string>
     <string name="mode_dfroot_kernel_required">仅支持Android 12+</string>
     <string name="mode_vivo_wired_open">vivo/iQOO 有线提权</string>

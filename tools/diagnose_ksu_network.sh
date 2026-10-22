@@ -212,7 +212,6 @@ fi
 section "Recent activation logs, if retained"
 for LOG_FILE in \
   /data/local/tmp/yhroot_ksu_activate.log \
-  /data/local/tmp/.ghostlock_ksu.log \
   /data/adb/ksu/ksud.log; do
   if [ -r "$LOG_FILE" ]; then
     printf '\n-- %s (last 120 lines) --\n' "$LOG_FILE"

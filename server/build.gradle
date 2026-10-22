@@ -25,6 +25,9 @@ dependencies {
     compileOnly project(':provider')
     implementation project(':shizuku-aidl')
     implementation project(':shizuku-api')
+    implementation('dev.rikka.shizuku:provider:13.1.5') {
+        exclude group: 'dev.rikka.shizuku', module: 'aidl'
+    }
 
     implementation libs.hidden.compat
     compileOnly libs.hidden.stub

@@ -20,13 +20,6 @@ def buildConfigString = { String value ->
 android {
     namespace 'roro.stellar.yuehong'
 
-    sourceSets {
-        main {
-            java.srcDirs += [ '../third_party/ghostlock/profile-core/src/main/kotlin' ]
-            assets.srcDirs += [ '../third_party/ghostlock/app/src/main/assets' ]
-        }
-    }
-
     defaultConfig {
         minSdk 28
 
@@ -39,9 +32,6 @@ android {
         buildConfigField 'String', 'SERVER_CHANNEL_ENDPOINT', buildConfigString(serverProperty('channelEndpoint'))
         buildConfigField 'String', 'SERVER_PROTOCOL_V2_PUBLIC_KEY', buildConfigString(serverProperty('protocolV2PublicKey'))
         buildConfigField 'String', 'SERVER_PROTOCOL_V2_KEY_ID', buildConfigString(serverProperty('protocolV2KeyId'))
-        buildConfigField 'String', 'ROM_PROTOCOL_V2_ENDPOINT', buildConfigString(serverProperty('romProtocolV2Endpoint'))
-        buildConfigField 'String', 'ROM_PROTOCOL_V2_PUBLIC_KEY', buildConfigString(serverProperty('romProtocolV2PublicKey'))
-        buildConfigField 'String', 'ROM_PROTOCOL_V2_KEY_ID', buildConfigString(serverProperty('romProtocolV2KeyId'))
         buildConfigField 'String', 'SERVER_CHANNEL_JOIN_URL', buildConfigString(serverProperty('channelJoinUrl'))
         buildConfigField 'String', 'SERVER_UPDATE_URL', buildConfigString(serverProperty('updateUrl'))
 
@@ -55,7 +45,7 @@ android {
 
     packagingOptions {
         jniLibs {
-            keepDebugSymbols += ["**/libbs.so", "**/libionstack.so", "**/libghostlock.so", "**/libextract.so", "**/libksu_*.so"]
+            keepDebugSymbols += ["**/libbs.so", "**/libionstack.so", "**/libksu_*.so"]
         }
     }
 
@@ -65,12 +55,11 @@ android {
 }
 
 dependencies {
+    implementation project(':ghostlock-app')
     implementation project(':api')
     implementation managerLibs.bundles.kotlinxCoroutines
     implementation managerLibs.bundles.core
     implementation platform(managerLibs.composeBom)
     implementation managerLibs.bundles.composeUi
-    implementation 'com.typesafe:config:1.4.3'
-    implementation 'org.apache.commons:commons-compress:1.28.0'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.80.2'
 }

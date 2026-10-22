@@ -131,7 +131,6 @@ function Assert-ServerProperties {
     $required = @(
         'compatibilityEndpoint', 'moduleId', 'protocolV2Endpoint',
         'channelEndpoint', 'protocolV2PublicKey', 'protocolV2KeyId',
-        'romProtocolV2Endpoint', 'romProtocolV2PublicKey', 'romProtocolV2KeyId',
         'channelJoinUrl', 'updateUrl'
     )
     $values = @{}
@@ -157,7 +156,9 @@ function Verify-ReleaseApk {
         'lib/arm64-v8a/libchid.so',
         'lib/arm64-v8a/libdfroot.so',
         'lib/arm64-v8a/librish.so',
-        'lib/arm64-v8a/libstellar.so'
+        'lib/arm64-v8a/libstellar.so',
+        'lib/arm64-v8a/libghostlock.so',
+        'lib/arm64-v8a/libextract.so'
     )
     $zip = [IO.Compression.ZipFile]::OpenRead($ApkPath)
     try {
@@ -293,6 +294,7 @@ $originalEnvironment = @{
     ANDROID_SDK_ROOT = $env:ANDROID_SDK_ROOT
     ANDROID_NDK_HOME = $env:ANDROID_NDK_HOME
     GRADLE_USER_HOME = $env:GRADLE_USER_HOME
+    RUSTUP_TOOLCHAIN = $env:RUSTUP_TOOLCHAIN
 }
 
 $javaAlias = Join-Path $tempRoot 'yh-jbr'
@@ -332,6 +334,22 @@ $env:ANDROID_SDK_ROOT = $sdk
 $env:ANDROID_NDK_HOME = Join-Path $sdk 'ndk\29.0.13113456'
 $env:GRADLE_USER_HOME = Join-Path $projectBuildRoot '.gradle-release-home'
 New-Item -ItemType Directory -Force -Path $env:GRADLE_USER_HOME | Out-Null
+
+# Cargo build scripts are host executables. Prefer the installed GNU host
+# toolchain when this Windows environment has no MSVC linker available.
+if ([string]::IsNullOrWhiteSpace($env:RUSTUP_TOOLCHAIN)) {
+    $rustup = Join-Path $env:USERPROFILE '.cargo\bin\rustup.exe'
+    if (Test-Path -LiteralPath $rustup -PathType Leaf) {
+        $installedRustToolchains = @(& $rustup toolchain list --quiet 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $installedRustToolchains -contains 'nightly-x86_64-pc-windows-gnu' -and
+                (Get-Command gcc.exe -ErrorAction SilentlyContinue)) {
+            $gnuTargets = @(& $rustup target list --installed --toolchain nightly-x86_64-pc-windows-gnu 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $gnuTargets -contains 'aarch64-linux-android') {
+                $env:RUSTUP_TOOLCHAIN = 'nightly-x86_64-pc-windows-gnu'
+            }
+        }
+    }
+}
 
 $cmakeVariant = if ($Variant -eq 'Release') { 'RelWithDebInfo' } else { 'Debug' }
 $configureTask = ":manager:configureCMake${cmakeVariant}[arm64-v8a]"
@@ -400,8 +418,10 @@ try {
             Write-Host 'Skipping native configuration because -SkipNative was specified.'
         }
 
-        $gradleArgs = @(":manager:assemble$Variant") + $gradleCommon + @('-x', $configureTask, '-x', $buildTask)
-        Write-Host "Building signed $Variant APK..."
+        $gradleArgs = @(
+            ":manager:assemble$Variant"
+        ) + $gradleCommon + @('-x', $configureTask, '-x', $buildTask)
+        Write-Host "Building the $Variant assistant APK with upstream GhostLock embedded..."
         & $gradle @gradleArgs
         Assert-ExitCode "Gradle $Variant assemble" $LASTEXITCODE
     } finally {
@@ -428,6 +448,7 @@ $outputDirectory = Join-Path $projectRoot 'out\apk'
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 $outputApk = Join-Path $outputDirectory $apk.Name
 Copy-Item -LiteralPath $apk.FullName -Destination $outputApk -Force
+
 if ($Variant -eq 'Release') {
     Verify-ReleaseApk -ApkPath $outputApk
 }

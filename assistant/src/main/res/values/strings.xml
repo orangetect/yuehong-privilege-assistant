@@ -148,16 +148,10 @@
     <string name="jailbreak_activation_success_message">The KernelSU activation script completed successfully.</string>
     <string name="jailbreak_activation_failure_title">KernelSU activation failed</string>
     <string name="jailbreak_activation_failure_message">Root escalation succeeded, but KernelSU activation did not complete.</string>
-    <string name="mode_ghostlock_title">6.x kernel · GhostLock</string>
-    <string name="mode_ghostlock_body">Runs the upstream GhostLock core directly. It uses the current kernel profile in cache, then APK built-in offsets, then the full OTA, and hands off to the selected KernelSU manager.</string>
-    <string name="mode_ghostlock_android_required">Android 15+ required</string>
-    <string name="mode_ghostlock_kernel_match">Current: %1$s</string>
-    <string name="mode_ghostlock_kernel_other">Other kernel: %1$s</string>
-    <string name="mode_ghostlock_open">GhostLock</string>
+    <string name="mode_ghostlock_open">Open GhostLock</string>
     <string name="mode_stellar_title">General privilege assistant · Stellar</string>
     <string name="mode_stellar_body">Uses manually selected bundled privilege files, local file import, wireless-debugging self-activation and the command console.</string>
     <string name="mode_stellar_open">Stellar</string>
-    <string name="mode_ghostlock_kernel_required">6.x kernels only</string>
     <string name="mode_dfroot_open">DirtyFrag</string>
     <string name="mode_dfroot_kernel_required">Android 12+ only</string>
     <string name="mode_vivo_wired_open">vivo/iQOO wired privilege</string>

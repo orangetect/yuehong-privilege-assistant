@@ -2,7 +2,7 @@
 
 ## 月虹提权助手
 
-月虹提权助手是基于 Stellar、GhostLock、KSuRoot 与 DirtyFrag 进行集成和扩展的 Android 工程。月虹界面、启动验证、设备适配、协议客户端、OTA 自动解析、提权流程和 KernelSU 激活属于本工程的修改范围。
+月虹提权助手是基于 Stellar、KSuRoot 与 DirtyFrag 集成和扩展的 Android 工程。GhostLock 的 Android Activity、profile/OTA 解析、Native 核心和 Rust 提取器来自上游源码，并通过按钮在同一 APK 中打开；助手没有另行实现这些 GhostLock 流程。
 
 本工程的月虹集成与修改部分采用 Mozilla Public License 2.0。完整文本位于根目录 `LICENSE` 与 `LICENSES/MPL-2.0.txt`。
 
@@ -35,10 +35,10 @@ Stellar 保留的 Shizuku AIDL 与兼容层继续遵循 Apache-2.0。完整文�
 
 - Project: GhostLock-App
 - Source: https://github.com/YuKongA/ghostlock-app
-- Upstream snapshot: user-provided `ghostlock-app-main (2).zip` (2026-10-20), SHA-256 `953FA5F65F9AE6BAE79C16E4769F327A143F4DBB84729AA544C6141559FD4E4B`
+- Upstream snapshot: user-provided `ghostlock-app-main (3).zip` (2026-10-22), SHA-256 `953FA5F65F9AE6BAE79C16E4769F327A143F4DBB84729AA544C6141559FD4E4B`
 - License: Apache License 2.0
 
-GhostLock C 核心、Rust 镜像/OTA 提取器、内核 profile 及许可证随源码交付；上游原文件位于 `third_party/ghostlock`，管理器选择、缓存优先级和 ROM V2 OTA 适配位于助手集成代码。Native 增补了所选 `ksud` 路径和 KernelSU handoff 成功判定。Rust 提取器保留月虹的 `--require-xbl` 参数及其 HTTP 依赖配置，避免丢失骁龙 OTA 校验和在线提取能力。完整许可证文本位于 `LICENSES/GhostLock-Apache-2.0.txt`。
+上游 App、profile-core、C++ Native 核心、Rust 镜像/OTA 提取器、内核 profile 和许可证随源码交付；应用源代码位于 `third_party/ghostlock`。GhostLock 的运行逻辑以这份上游源码构建，不叠加助手自有的 profile、OTA、管理器或 Native 交接实现。为合并进月虹提权助手 APK，Android App 模块改用 Library 插件，并由助手按钮显式启动上游 Activity；这项包装适配及 SHA-256 锚点见 `third_party/ghostlock/UPSTREAM_SOURCE.md`。完整许可证文本位于 `LICENSES/GhostLock-Apache-2.0.txt`。
 
 版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。
 

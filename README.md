@@ -4,7 +4,7 @@
 
 - 应用 ID：`roro.stellar.yuehong`
 - 版本：`v1.6.1`（`versionCode 161`）
-- 最低系统：Android 9（API 28）
+- 最低系统：Android 12（API 31）
 - 目标系统：Android API 37
 - ABI：`arm64-v8a`
 
@@ -32,12 +32,12 @@ shizuku/    Stellar 内部保留的 Shizuku 兼容层
 LICENSES/   第三方许可证文本
 ```
 
-`assistant` 是 Android Library，最终由 `manager` 打包成唯一 APK。桌面唯一入口仍是月虹提权助手的 `roro.stellar.yuehong.activities.MainActivity`；Stellar 原管理器首页、更新器入口和安装未知 APK 权限不进入发行 Manifest。
+`assistant` 是 Android Library，由 `manager` 打包为月虹提权助手 APK。上游 GhostLock App 以 Android Library 方式嵌入同一 APK；助手中的 GhostLock 按钮进入上游 `MainActivity`，GhostLock 的界面、profile、OTA 解析和 Native 流程均由同步的上游代码提供。用户只需安装月虹提权助手一个 APK。桌面入口仍是月虹提权助手的 `roro.stellar.yuehong.activities.MainActivity`。
 
 ## 主要上游项目
 
 - [Stellar](https://github.com/roro2239/Stellar)：内置的 Manager、Server 与核心服务框架。
-- [GhostLock-App](https://github.com/YuKongA/ghostlock-app)：GhostLock 原生提权核心、OTA 解析器和内核偏移资源。
+- [GhostLock-App](https://github.com/YuKongA/ghostlock-app)：嵌入助手 APK 的上游 GhostLock 应用界面、Native 核心、OTA 解析器和内核 profile。
 - [KSuRoot](https://github.com/hmascs/KSuRoot/)：APK 内置提权载荷来源。
 - [DirtyFrag](https://github.com/mitschud/DirtyFrag)：DirtyFrag v1.16 原生提权链与 KMI 内核模块唯一上游来源；本工程同步自用户提供的 `DirtyFrag-master (1).zip`。
 
@@ -54,9 +54,6 @@ protocolV2Endpoint=
 channelEndpoint=
 protocolV2PublicKey=
 protocolV2KeyId=
-romProtocolV2Endpoint=
-romProtocolV2PublicKey=
-romProtocolV2KeyId=
 channelJoinUrl=
 updateUrl=
 ```
@@ -72,24 +69,23 @@ updateUrl=
 - JDK 21
 - Android SDK Platform 37.0
 - Android SDK Build Tools 36.0.0
-- Android NDK `29.0.13113456`
+- Android NDK `29.0.13113456`（或通过 `ANDROID_NDK_HOME` 指定可用版本）
+- Rust 工具链及 `aarch64-linux-android` target
 - CMake 3.22.1 或更高版本
 
 Windows 中文路径下请使用工程自带脚本。脚本会创建一个仅在构建期间存在的 ASCII 临时目录联接，避免 CMake/Ninja 的中文路径限制，不会复制源码：
 
-构建调试版：
+构建包含上游 GhostLock 的调试版提权助手：
 
 ```powershell
 .\tools\build_android.ps1 -Variant Debug
 ```
 
-构建正式版：
+构建包含上游 GhostLock 的正式版提权助手：
 
 ```powershell
 .\tools\build_android.ps1 -Variant Release
 ```
-
-若工程位于纯 ASCII 路径，也可直接执行 `./gradlew :manager:assembleRelease`。
 
 Release 签名读取根目录下由构建者自行创建的 `keystore.properties`；公开源码不附带任何发行密钥或签名属性。主要产物会同步到：
 
@@ -123,17 +119,10 @@ out/mapping/mapping-v1.6.1.txt
 
 启动验证与频道授权通过后，应用先进入提权模式选择页：
 
-- **内核 6.1 / 6.6 / 6.12 · GhostLock**：直接运行同步的上游核心，按精确 `uname -r` 依次使用偏移缓存、APK 内置 profile、完整 OTA 提取；内核接管由 GhostLock 核心完成，并使用助手所选的 KernelSU 管理器。
+- **GhostLock**：按钮打开同一 APK 内嵌的上游 GhostLock 界面。profile、OTA 解析、Shizuku 和 Native 提权流程由上游实现处理。
 - **通用提权助手 · Stellar**：使用 APK 内置提权文件手动选择、本地文件导入、自激活和命令控制台。
 - **DirtyFrag v1.16**：入口始终显示，只有 Android 12+ 设备可以进入；使用 DirtyFrag 上游八个 KMI 模块构建产物，获取临时 Root 后由 bootstrap 直接把所选包名传给管理器的 `libksud.so`。
 
 DirtyFrag 的临时文件位于应用的 device-protected files 目录，bootstrap 不会清理整个 `/data/local/tmp`。DirtyFrag 上游版本、KMI 构建产物和许可证核对见 [LICENSE_REVIEW.md](LICENSE_REVIEW.md) 与 [NOTICE.md](NOTICE.md)。原生文件名中保留上游使用的 `dfroot` 模块和库名，以维持 DirtyFrag 的内核模块协议。
 
-GhostLock 完整上游源码固定在 `third_party/ghostlock`。更新其原生组件后执行：
-
-```powershell
-.\tools\build_ghostlock.ps1 -NdkVersion 29.0.13113456 -Offline
-python .\tools\generate_ghostlock_kernels.py
-```
-
-生成的 arm64 文件固定写入 `assistant/src/main/jniLibs/arm64-v8a/libghostlock.so` 与 `libextract.so`；Android 工程仍由 `tools/build_android.ps1` 构建。
+GhostLock 上游源码及本次同步锚点见 `third_party/ghostlock/UPSTREAM_SOURCE.md`。正式提权助手 APK 同时包含从上游源码构建的 GhostLock Native 库与 Rust 提取器。

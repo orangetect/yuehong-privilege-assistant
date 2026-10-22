@@ -48,7 +48,6 @@ import roro.stellar.yuehong.shell.KernelSuManagerSelection
 
 @Composable
 internal fun ModeSelectionScreen(
-    ghostLockKernelAvailable: Boolean,
     dfRootPlatformAvailable: Boolean,
     onOpenGhostLock: () -> Unit,
     onOpenDfRoot: () -> Unit,
@@ -130,22 +129,12 @@ internal fun ModeSelectionScreen(
             }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = ghostLockKernelAvailable,
                 onClick = onOpenGhostLock,
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(1.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.mode_ghostlock_open),
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.mode_ghostlock_kernel_required),
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
+                Text(
+                    text = stringResource(R.string.mode_ghostlock_open),
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),

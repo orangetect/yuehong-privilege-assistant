@@ -22,7 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import roro.stellar.yuehong.R
 
-/** Stellar 与 GhostLock 共用的设备信息入口。 */
+/** Opens the assistant's device information details. */
 @Composable
 fun SharedDeviceInfoButton(compact: Boolean = false) {
     var showDeviceInfo by rememberSaveable { mutableStateOf(false) }

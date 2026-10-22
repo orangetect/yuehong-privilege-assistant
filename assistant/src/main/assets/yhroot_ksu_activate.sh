@@ -9,14 +9,7 @@ KSU_APK=
 KSU_PACKAGE="${YHROOT_KSU_PACKAGE:-}"
 LOG="${YHROOT_LOG:-}"
 
-case "$SCRIPT_PATH" in
-  */.ghostlock_root.sh)
-    [ -n "$LOG" ] || LOG="${SCRIPT_PATH%/*}/.ghostlock_ksu.log"
-    ;;
-  *)
-    [ -n "$LOG" ] || LOG="$TMP_ROOT/yhroot_ksu_activate.log"
-    ;;
-esac
+[ -n "$LOG" ] || LOG="$TMP_ROOT/yhroot_ksu_activate.log"
 
 mkdir -p "$TMP_ROOT" 2>/dev/null
 

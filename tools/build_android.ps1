@@ -34,7 +34,7 @@ try {
     try {
         & '.\gradlew.bat' $gradleTask '--no-daemon'
         if ($LASTEXITCODE -ne 0) {
-            throw "Gradle build failed with exit code $LASTEXITCODE"
+            throw "Gradle build failed with exit code $LASTEXITCODE: $gradleTask"
         }
     } finally {
         Pop-Location
@@ -49,4 +49,4 @@ try {
     }
 }
 
-Write-Output "Build completed: $gradleTask"
+Write-Output "Build completed: $gradleTask (upstream GhostLock is embedded)"
