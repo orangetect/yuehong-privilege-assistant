@@ -3,7 +3,7 @@
 月虹提权助手是一个内置 Stellar Manager、Server、API 与 DirtyFrag v1.16 的 Android 提权工作台。应用不再依赖外部 Shizuku 或外部 Stellar 管理器，可直接在应用内通过 Android 无线调试完成 Stellar 自激活，再使用 `Stellar.newProcess()` 执行命令；DirtyFrag 作为独立的 Android 12+ 模式运行。
 
 - 应用 ID：`roro.stellar.yuehong`
-- 版本：`v1.6.1`（`versionCode 161`）
+- 版本：`v1.6.3`（`versionCode 163`）
 - 最低系统：Android 12（API 31）
 - 目标系统：Android API 37
 - ABI：`arm64-v8a`
@@ -90,8 +90,8 @@ Windows 中文路径下请使用工程自带脚本。脚本会创建一个仅在
 Release 签名读取根目录下由构建者自行创建的 `keystore.properties`；公开源码不附带任何发行密钥或签名属性。主要产物会同步到：
 
 ```text
-out/apk/月虹提权助手-v1.6.1-release.apk
-out/mapping/mapping-v1.6.1.txt
+out/apk/月虹提权助手-v1.6.3-release.apk
+out/mapping/mapping-v1.6.3.txt
 ```
 
 ## 安全边界

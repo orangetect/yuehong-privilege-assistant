@@ -39,6 +39,6 @@ ext {
     versionName = "1.0.19"
 
     // 月虹提权助手唯一版本源；manager Manifest 与 assistant 版本验证必须共同引用。
-    yuehongVersionCode = 162
-    yuehongVersionName = "v1.6.2"
+    yuehongVersionCode = 163
+    yuehongVersionName = "v1.6.3"
 }
