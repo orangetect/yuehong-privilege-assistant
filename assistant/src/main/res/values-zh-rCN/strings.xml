@@ -136,7 +136,7 @@
     <string name="kernel_su_manager_dialog_title">KernelSU 激活管理器</string>
     <string name="kernel_su_manager_current">当前包名：%1$s</string>
     <string name="kernel_su_manager_scanning">正在扫描已安装的管理器…</string>
-    <string name="kernel_su_manager_empty">没有找到包含 libksud.so 的已安装应用，将使用默认包名。</string>
+    <string name="kernel_su_manager_empty">没有在应用的 /data/app/.../lib/arm64/ 目录中找到兼容 ksud，将使用默认包名。</string>
     <string name="kernel_su_manager_use_default">使用默认 KernelSU</string>
     <string name="jailbreak_mode_kernelsu">KernelSU及分支</string>
     <string name="escalation_activating_jailbreak">正在激活 KernelSU 越狱模式…</string>

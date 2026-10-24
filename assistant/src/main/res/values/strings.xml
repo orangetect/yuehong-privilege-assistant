@@ -138,7 +138,7 @@
     <string name="kernel_su_manager_dialog_title">KernelSU activation manager</string>
     <string name="kernel_su_manager_current">Current package: %1$s</string>
     <string name="kernel_su_manager_scanning">Scanning installed managers…</string>
-    <string name="kernel_su_manager_empty">No installed application containing libksud.so was found. The default package will be used.</string>
+    <string name="kernel_su_manager_empty">No compatible ksud was found under an app's /data/app/.../lib/arm64/ directory. The default package will be used.</string>
     <string name="kernel_su_manager_use_default">Use default KernelSU</string>
     <string name="jailbreak_mode_kernelsu">KernelSU and forks</string>
     <string name="escalation_activating_jailbreak">Activating KernelSU jailbreak mode…</string>

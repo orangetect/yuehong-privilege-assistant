@@ -5,30 +5,42 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Build
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
-import java.util.zip.ZipFile
+import java.util.concurrent.TimeUnit
 
-/** Metadata for a KernelSU manager whose APK contains libksud.so. */
+/** Metadata for an installed app carrying a compatible KernelSU ksud executable. */
 data class KernelSuManagerInfo(
     val packageName: String,
     val label: String,
     val icon: Drawable,
-    /** The matching native library path, or an APK/entry path when the library is unextracted. */
+    /** The matching library file in the app's arm64 native library directory. */
     val libKsudPath: String,
 )
 
 /**
  * Stores the manager package selected on the mode-selection page and discovers compatible
- * managers by looking for libksud.so in their extracted native directory or APK splits.
+ * managers by checking for the ksud late-load CLI, regardless of its native library filename.
  */
 object KernelSuManagerSelection {
     const val DEFAULT_PACKAGE: String = "me.weishu.kernelsu"
     private const val PREFS_NAME = "kernel_su_manager_selection"
     private const val PACKAGE_KEY = "package_name"
     private const val LIBRARY_NAME = "libksud.so"
+    private const val MIN_RANDOM_LIBRARY_SIZE = 32 * 1024L
+    private const val MAX_FINGERPRINT_SCAN_SIZE = 32 * 1024 * 1024L
+    private const val KSUD_HELP_TIMEOUT_SECONDS = 2L
     private val PACKAGE_PATTERN = Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")
+    private val APP_PACKAGE_DIRECTORY = Regex("^/data/app/[^/]+/([^/]+)$")
+    private val KSUD_BINARY_MARKERS = listOf(
+        "Load kernelsu.ko and execute late-load stage scripts",
+        "Pass allow_shell=1 when loading kernelsu.ko",
+        "Specify kernel KMI version instead of auto-detection",
+        "manager package name",
+    )
+    private val KSUD_HELP_OPTIONS = listOf("--kmi", "--allow-shell", "--package-name")
 
     /** Returns the persisted package, falling back to the stock KernelSU package when empty. */
     fun selectedPackage(context: Context): String {
@@ -73,36 +85,26 @@ object KernelSuManagerSelection {
         return normalized
     }
 
-    /** Copies libksud.so from the selected manager, including split APK installs. */
+    /** Copies the selected manager's ksud executable from its installed arm64 library directory. */
     fun copySelectedKsud(context: Context, destination: File): Boolean {
         val selected = selectedPackage(context)
         val manager = scan(context).firstOrNull { it.packageName == selected } ?: return false
         val libraryPath = manager.libKsudPath
-        val split = libraryPath.indexOf("!/")
         val parent = destination.parentFile ?: return false
         if (!parent.isDirectory && !parent.mkdirs()) return false
         return runCatching {
-            if (split < 0) {
-                File(libraryPath).inputStream().use { input ->
-                    FileOutputStream(destination, false).use { output -> input.copyTo(output) }
-                }
-            } else {
-                val apk = libraryPath.substring(0, split)
-                val entryName = libraryPath.substring(split + 2)
-                ZipFile(apk).use { zip ->
-                    val entry = zip.getEntry(entryName) ?: return false
-                    zip.getInputStream(entry).use { input ->
-                        FileOutputStream(destination, false).use { output -> input.copyTo(output) }
-                    }
-                }
+            File(libraryPath).inputStream().use { input ->
+                FileOutputStream(destination, false).use { output -> input.copyTo(output) }
             }
             destination.isFile && destination.length() > 0L
         }.getOrDefault(false)
     }
 
     /**
-     * Finds every installed application carrying libksud.so. This is intended to run off the
-     * main thread because inspecting split APKs can touch many APK zip files.
+     * Finds installed applications carrying ksud under `/data/app/<install>/<package>/lib/arm64`.
+     * Fixed-name libraries are preferred. Randomized names must contain the shared ksud CLI
+     * fingerprint and expose the expected `late-load --help` options. Run this off the main
+     * thread because it scans native libraries and probes matching candidates.
      */
     @Suppress("DEPRECATION")
     fun scan(context: Context): List<KernelSuManagerInfo> {
@@ -137,30 +139,113 @@ object KernelSuManagerSelection {
 
     private fun findLibraryPath(application: ApplicationInfo): String? {
         val nativeDirectory = application.nativeLibraryDir
-        if (!nativeDirectory.isNullOrBlank()) {
-            val extracted = File(nativeDirectory, LIBRARY_NAME)
-            if (extracted.isFile) return extracted.absolutePath
-        }
+            ?.takeIf(String::isNotBlank)
+            ?.let(::File)
+            ?.let { runCatching { it.canonicalFile }.getOrNull() }
+            ?: return null
 
-        val sourceApks = buildList {
-            application.sourceDir?.let(::add)
-            application.splitSourceDirs?.forEach(::add)
+        // Filter the app package directory first, before examining any library files.
+        val packageDirectory = nativeDirectory.parentFile
+            ?.parentFile
+            ?.let { runCatching { it.canonicalFile }.getOrNull() }
+            ?: return null
+        if (!isAllowedAppPackageDirectory(packageDirectory)) return null
+
+        val expectedNativeDirectory = runCatching {
+            File(packageDirectory, "lib/arm64").canonicalFile
+        }.getOrNull() ?: return null
+        if (nativeDirectory != expectedNativeDirectory || !nativeDirectory.isDirectory) return null
+
+        // Preserve the historical exact-name match before attempting generic discovery.
+        val exactNameLibrary = File(nativeDirectory, LIBRARY_NAME)
+        if (isDirectLibraryFile(exactNameLibrary, nativeDirectory)) {
+            return exactNameLibrary.canonicalPath
         }
-        for (source in sourceApks.distinct()) {
-            val entry = findLibraryEntry(source) ?: continue
-            return "$source!/$entry"
-        }
-        return null
+        return findRandomLibrary(nativeDirectory)?.canonicalPath
     }
 
-    private fun findLibraryEntry(apkPath: String): String? {
-        return runCatching {
-            ZipFile(apkPath).use { zip ->
-                // Only advertise an ABI that the arm64 DirtyFrag payload can
-                // execute. ZIP order is not stable in multi-ABI manager APKs.
-                listOf("lib/arm64-v8a/$LIBRARY_NAME", "lib/arm64/$LIBRARY_NAME")
-                    .firstOrNull { zip.getEntry(it) != null }
+    private fun isAllowedAppPackageDirectory(directory: File): Boolean {
+        if (!directory.isDirectory) return false
+        val packageDirectoryName = APP_PACKAGE_DIRECTORY
+            .matchEntire(directory.path)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: return false
+        return !packageDirectoryName.contains("android", ignoreCase = true)
+    }
+
+    private fun findRandomLibrary(directory: File): File? {
+        return directory.listFiles()
+            ?.asSequence()
+            ?.filter {
+                it.name.endsWith(".so", ignoreCase = true) && isDirectLibraryFile(it, directory)
             }
-        }.getOrNull()
+            ?.filter { it.length() >= MIN_RANDOM_LIBRARY_SIZE }
+            ?.sortedByDescending(File::length)
+            ?.firstOrNull { candidate ->
+                hasKsudBinaryFingerprint(candidate) &&
+                    supportsKsudLateLoad(candidate.absolutePath)
+            }
+    }
+
+    private fun isDirectLibraryFile(file: File, directory: File): Boolean {
+        return runCatching {
+            file.isFile && file.canonicalFile.parentFile == directory
+        }.getOrDefault(false)
+    }
+
+    private fun hasKsudBinaryFingerprint(file: File): Boolean {
+        return runCatching {
+            file.inputStream().use { stream ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(8 * 1024)
+                var totalBytes = 0L
+                var tooLarge = false
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    totalBytes += count
+                    if (totalBytes > MAX_FINGERPRINT_SCAN_SIZE) {
+                        tooLarge = true
+                        break
+                    }
+                    output.write(buffer, 0, count)
+                }
+                if (tooLarge) {
+                    false
+                } else {
+                    val contents = String(output.toByteArray(), Charsets.ISO_8859_1)
+                    KSUD_BINARY_MARKERS.all(contents::contains)
+                }
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun supportsKsudLateLoad(path: String): Boolean {
+        val process = runCatching {
+            ProcessBuilder(path, "late-load", "--help")
+                .redirectErrorStream(true)
+                .start()
+        }.getOrNull() ?: return false
+
+        return try {
+            if (!process.waitFor(KSUD_HELP_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+                false
+            } else {
+                val output = process.inputStream.bufferedReader().use { it.readText() }
+                process.exitValue() == 0 &&
+                    output.contains("late-load") &&
+                    KSUD_HELP_OPTIONS.all(output::contains)
+            }
+        } catch (interrupted: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        } catch (_: Exception) {
+            false
+        } finally {
+            if (process.isAlive) process.destroyForcibly()
+            runCatching { process.inputStream.close() }
+        }
     }
 }
