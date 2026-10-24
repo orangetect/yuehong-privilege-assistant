@@ -48,9 +48,9 @@ import roro.stellar.yuehong.shell.KernelSuManagerSelection
 
 @Composable
 internal fun ModeSelectionScreen(
-    dfRootPlatformAvailable: Boolean,
+    dirtyFragVrPlatformAvailable: Boolean,
     onOpenGhostLock: () -> Unit,
-    onOpenDfRoot: () -> Unit,
+    onOpenDirtyFragVr: () -> Unit,
     onOpenStellar: () -> Unit,
     onOpenVivoWired: () -> Unit,
 ) {
@@ -122,19 +122,19 @@ internal fun ModeSelectionScreen(
             }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = dfRootPlatformAvailable && !refreshingManager,
-                onClick = onOpenDfRoot,
+                enabled = dirtyFragVrPlatformAvailable && !refreshingManager,
+                onClick = onOpenDirtyFragVr,
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(1.dp),
                 ) {
                     Text(
-                        text = stringResource(R.string.mode_dfroot_open),
+                        text = stringResource(R.string.mode_dirtyfrag_vr_open),
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = stringResource(R.string.mode_dfroot_kernel_required),
+                        text = stringResource(R.string.mode_dirtyfrag_vr_kernel_required),
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }

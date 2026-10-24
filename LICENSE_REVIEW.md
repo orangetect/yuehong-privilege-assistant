@@ -20,11 +20,13 @@
 - 许可证：Apache License 2.0。
 - 本工程仅保留随 APK 发布的 arm64-v8a 内置提权载荷及其校验信息，不包含动态载荷构建算法；完整许可证文本为 `LICENSES/Apache-2.0.txt`。
 
-## DirtyFrag native chain
+## DirtyFrag VR native chain
 
 - 上游：https://github.com/mitschud/DirtyFrag
-- 同步版本：用户提供的 `DirtyFrag-master (1).zip`，DirtyFrag `v1.16`，ZIP SHA-256 `910E53DB260D89DF9CC73244B6D03860B2CE78E1BC28B0A72C11B9B4E11E1B7D`。
-- 集成位置：`manager/src/main/jni/dfroot/`；本工程只修改 bootstrap 的设备保护路径和日志交接，直接把所选管理器包名传给 `libksud.so`，DirtyFrag 模式不调用激活脚本。
+- 同步版本：用户提供的 `DirtyFalg-vr-master.zip`，DirtyFrag `v1.16-vr`（46），ZIP SHA-256 `B6997E293DFCC2D9FF252FA1E202900880A01FB40631E755F4F4BCF3CDCF5BDA`。
+- 集成位置：`manager/src/main/jni/dfroot/` 和 `assistant/src/main/jni/vrext/`。管理器包名与识别器返回的 ksud 路径由助手直接传递；启动器不重新扫描管理器或重新定位 SO。
+- VR 偏移提取器使用本仓库 `third_party/ghostlock/tools/extract_rs/` 的 BootImage/BTF 与 OTA payload 解析代码；只从镜像内真实 BTF 读取 `tracepoint.funcs`，无 BTF 时返回错误，不使用猜测值。内核运行时模式直接读取当前内核 BTF。
+- 当前 `manager/src/main/jni/dfroot/ko/` 中的八个 KMI 模块来自 DirtyFrag v1.16，尚未包含 VR 配置槽。启用 VR 探针处理时，native launcher 会拒绝继续；需要用该 VR 源码和对应 DDK 镜像重新生成这些模块后，VR 探针功能才可运行。
 - DirtyFrag `lkm/dfroot.c` 声明 GPL；`include.inc` 保留 Odzhan 的 BSD 风格许可头。
 - 上游仓库根目录没有一份清晰、统一覆盖全部 DirtyFrag 文件的 LICENSE 文件。当前公开源码保留上述文件头，并将剩余文件标为“上游许可证待进一步核对”；DirtyFrag 代码不笼统声明为 MPL-2.0。
 
@@ -33,5 +35,5 @@
 - 根目录 `LICENSE`：MPL-2.0。
 - Stellar 与月虹修改文件：MPL-2.0。
 - GhostLock、KSuRoot 与 Shizuku 文件：Apache-2.0。
-- DirtyFrag 原生链：按上游文件头和待核对的上游许可证说明单独归属；不并入 MPL-2.0。
+- DirtyFrag VR 原生链：按上游文件头和待核对的上游许可证说明单独归属；不并入 MPL-2.0。
 - `NOTICE.md` 列出上游来源和本工程修改范围。

@@ -54,7 +54,7 @@ add_library(rish SHARED rish.cpp)
 
 target_link_libraries(rish log cxx::cxx)
 
-# DirtyFrag v1.16 is the manual root mode. Its executable payloads are
+# DirtyFrag VR is the manual root mode. Its executable payloads are
 # packaged as libdfroot.so/libbootstrap.so and launched from nativeLibraryDir;
 # they are deliberately kept separate from the Stellar JNI libraries above.
 enable_language(ASM)

@@ -24,7 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import roro.stellar.yuehong.BuildConfig
-import roro.stellar.yuehong.dfroot.DfRootActivity
+import roro.stellar.yuehong.dfroot.DirtyFragVrActivity
 import roro.stellar.yuehong.shell.HttpStartupVerificationApi
 import roro.stellar.yuehong.shell.KernelSuManagerSelection
 import roro.stellar.yuehong.shell.StartupVerification
@@ -48,7 +48,7 @@ fun StellarAssistantApp() {
         }
         var page by rememberSaveable { mutableStateOf(AppPage.Announcement) }
         var startupRefreshGeneration by rememberSaveable { mutableIntStateOf(0) }
-        val dfRootPlatformAvailable = remember {
+        val dirtyFragVrPlatformAvailable = remember {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         }
 
@@ -68,10 +68,18 @@ fun StellarAssistantApp() {
             )
         }
 
-        fun openDfRootMode() {
-            if (!dfRootPlatformAvailable) return
+        fun openDirtyFragVrMode() {
+            if (!dirtyFragVrPlatformAvailable) return
             val activity = context as? Activity ?: return
-            activity.startActivity(Intent(context, DfRootActivity::class.java))
+            val manager = KernelSuManagerSelection.selectedManagerTarget(context)
+            val managerPackage = manager?.packageName
+                ?: KernelSuManagerSelection.selectedPackage(context)
+            activity.startActivity(
+                Intent(activity, DirtyFragVrActivity::class.java).apply {
+                    putExtra(DirtyFragVrActivity.EXTRA_MANAGER_PACKAGE, managerPackage)
+                    putExtra(DirtyFragVrActivity.EXTRA_KSUD_PATH, manager?.libKsudPath.orEmpty())
+                },
+            )
         }
 
         fun openStellarMode() {
@@ -153,9 +161,9 @@ fun StellarAssistantApp() {
                 )
 
                 AppPage.ModeSelection -> ModeSelectionScreen(
-                    dfRootPlatformAvailable = dfRootPlatformAvailable,
+                    dirtyFragVrPlatformAvailable = dirtyFragVrPlatformAvailable,
                     onOpenGhostLock = ::openGhostLockMode,
-                    onOpenDfRoot = ::openDfRootMode,
+                    onOpenDirtyFragVr = ::openDirtyFragVrMode,
                     onOpenStellar = ::openStellarMode,
                     onOpenVivoWired = ::openVivoWiredMode,
                 )

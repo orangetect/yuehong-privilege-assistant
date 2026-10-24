@@ -6,12 +6,12 @@ import android.net.IpSecAlgorithm;
 import android.net.IpSecManager;
 import android.net.IpSecTransform;
 import android.os.Build;
-import roro.stellar.yuehong.shell.KernelSuManagerSelection;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -22,8 +22,8 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Stages the selected KernelSU manager and runs the upstream DirtyFrag chain. */
-public final class DfRootRunner {
+/** Stages the manager selected by the assistant and runs the DirtyFrag VR chain. */
+public final class DirtyFragVrRunner {
     private static final String NATIVE_BIN = "libdfroot.so";
     private static final String BOOTSTRAP_BIN = "libbootstrap.so";
     private static final String WORK_DIRECTORY = "dfroot";
@@ -35,31 +35,31 @@ public final class DfRootRunner {
     private static final String PREF_AUTO_SOFT_REBOOT = "auto_soft_reboot";
     private static final String PREF_DISABLE_MODULES = "disable_modules";
 
-    private DfRootRunner() {
+    private static final String PREF_VR_DISARM = "vr_disarm";
+    private static final String PREF_VR_AUTO = "vr_auto";
+    private static final String PREF_VR_OFFSET = "vr_off";
+
+    private DirtyFragVrRunner() {
     }
 
     public static boolean isArmed() {
         return new File("/dev/df").exists();
     }
 
-    public static synchronized int run(Context context, DfRootReporter reporter) throws Exception {
+    public static synchronized int run(Context context, String managerPackage,
+                                       String ksudPath, DirtyFragVrReporter reporter)
+            throws Exception {
         Context appContext = context.getApplicationContext();
         Context deContext = appContext.createDeviceProtectedStorageContext();
         if (isArmed()) {
             reporter.report("already hooked, skipping\n");
             return 0;
         }
-        String selectedPackage = KernelSuManagerSelection.INSTANCE.selectedPackage(appContext);
-        roro.stellar.yuehong.shell.KernelSuManagerTarget manager =
-                KernelSuManagerSelection.INSTANCE.selectedManagerTarget(appContext);
-        if (manager == null) {
-            throw new IOException("No compatible ksud found for selected manager "
-                    + selectedPackage);
+        if (managerPackage == null || managerPackage.trim().isEmpty()) {
+            throw new IOException("No selected KernelSU manager package was provided");
         }
-        String managerPackage = manager.getPackageName();
-        if (!selectedPackage.equals(managerPackage)) {
-            throw new IOException("Recognized ksud does not match selected manager "
-                    + selectedPackage);
+        if (ksudPath == null || ksudPath.trim().isEmpty()) {
+            throw new IOException("No recognized ksud path was provided for " + managerPackage);
         }
 
         File work = new File(deContext.getFilesDir(), WORK_DIRECTORY);
@@ -67,13 +67,16 @@ public final class DfRootRunner {
             throw new IOException("unable to create DirtyFrag staging directory");
         }
         File ksud = new File(deContext.getFilesDir().getParentFile(), KSUD_FILE);
-        stageManagerKsud(new File(manager.getLibKsudPath()), ksud);
+        stageManagerKsud(new File(ksudPath), ksud);
         stageBinary(new File(deContext.getApplicationInfo().nativeLibraryDir, BOOTSTRAP_BIN),
                 new File(work, BOOTSTRAP_FILE));
 
         // The native bootstrap reads these DE preferences after the kernel hand-off.
         SharedPreferences prefs = deContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         boolean autoSoftReboot = prefs.getBoolean(PREF_AUTO_SOFT_REBOOT, false);
+        boolean vrDisarm = prefs.getBoolean(PREF_VR_DISARM, false);
+        boolean vrAuto = prefs.getBoolean(PREF_VR_AUTO, true);
+        String vrOffset = prefs.getString(PREF_VR_OFFSET, "").trim();
         if (!prefs.edit()
                 .putString(PREF_SU_MANAGER, managerPackage)
                 .putBoolean(PREF_SOFT_REBOOT, autoSoftReboot)
@@ -85,10 +88,29 @@ public final class DfRootRunner {
         File bin = new File(deContext.getApplicationInfo().nativeLibraryDir, NATIVE_BIN);
         if (!bin.isFile()) throw new IOException(NATIVE_BIN + " is missing from nativeLibraryDir");
 
-        reporter.report("DirtyFrag v1.16: upstream KernelSU activation.\n");
+        reporter.report("DirtyFrag VR v1.16: KernelSU manager hand-off.\n");
+        reporter.report("DirtyFrag VR: probe removal " + (vrDisarm ? "enabled" : "disabled") + ".\n");
         reporter.report("DirtyFrag manager package: " + managerPackage + "\n");
         reporter.report("DirtyFrag model: " + Build.MANUFACTURER + " " + Build.MODEL + "\n");
         reporter.report("DirtyFrag kernel: " + System.getProperty("os.version", "unknown") + "\n\n");
+
+        List<String> vrArgs = new ArrayList<>();
+        if (vrDisarm) {
+            if (vrAuto) {
+                vrArgs.add("--vr-auto");
+                File resolvedOffset = new File(work, "vr_offset.txt");
+                if (resolvedOffset.exists() && !resolvedOffset.delete()) {
+                    throw new IOException("unable to clear the previous VR offset result");
+                }
+                reporter.report("VR offset source: running kernel BTF.\n");
+            } else {
+                long offset = parseVrOffset(vrOffset);
+                vrArgs.add("--vr-off");
+                vrArgs.add(Long.toString(offset));
+                reporter.report("VR funcs offset: " + offset + " (0x"
+                        + Long.toHexString(offset) + ").\n");
+            }
+        }
 
         IpSecManager ipsec = (IpSecManager) deContext.getSystemService(Context.IPSEC_SERVICE);
         if (ipsec == null) throw new IllegalStateException("IpSecManager unavailable");
@@ -106,8 +128,12 @@ public final class DfRootRunner {
                 .setIpv4Encapsulation(encapSock, senderPort)
                 .buildTransportModeTransform(loopback, spiObj);
         try {
-            return runBinary(bin, reporter, encapSock.getPort(), spiObj.getSpi(),
-                    aesKey, senderPort);
+            int exitCode = runBinary(bin, reporter, encapSock.getPort(), spiObj.getSpi(),
+                    aesKey, senderPort, vrArgs);
+            if (vrDisarm && vrAuto) {
+                reportResolvedOffset(new File(work, "vr_offset.txt"), reporter);
+            }
+            return exitCode;
         } finally {
             transform.close();
             spiObj.close();
@@ -118,6 +144,44 @@ public final class DfRootRunner {
     private static void stageManagerKsud(File source, File destination) throws IOException {
         if (!source.isFile()) throw new IOException("selected ksud is missing: " + source);
         stageBinary(source, destination);
+    }
+
+    private static long parseVrOffset(String value) throws IOException {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IOException("VR probe removal is enabled but the funcs offset is empty");
+        }
+        String normalized = value.trim();
+        try {
+            long offset = normalized.startsWith("0x") || normalized.startsWith("0X")
+                    ? Long.parseLong(normalized.substring(2), 16)
+                    : Long.parseLong(normalized, 10);
+            if (offset <= 0 || offset > 0x100) {
+                throw new IOException("VR funcs offset must be between 1 and 0x100");
+            }
+            return offset;
+        } catch (NumberFormatException exception) {
+            throw new IOException("Invalid VR funcs offset: " + normalized, exception);
+        }
+    }
+
+    private static void reportResolvedOffset(File resultFile, DirtyFragVrReporter reporter) {
+        if (!resultFile.isFile()) return;
+        try (BufferedReader reader = new BufferedReader(new FileReader(resultFile))) {
+            String value = reader.readLine();
+            if (value == null) return;
+            value = value.trim();
+            if ("fail".equalsIgnoreCase(value)) {
+                reporter.report("VR offset resolution failed; activation was aborted before manager hand-off.\n");
+                return;
+            }
+            long offset = Long.parseLong(value);
+            if (offset > 0 && offset <= 0x100) {
+                reporter.report("Resolved VR funcs offset: " + offset + " (0x"
+                        + Long.toHexString(offset) + ").\n");
+            }
+        } catch (Exception exception) {
+            reporter.report("Unable to read the resolved VR offset: " + exception.getMessage() + "\n");
+        }
     }
 
     private static void stageBinary(File source, File destination) throws IOException {
@@ -131,8 +195,9 @@ public final class DfRootRunner {
         }
     }
 
-    private static int runBinary(File bin, DfRootReporter reporter, int encapPort,
-                                 int spi, byte[] aesKey, int senderPort) throws Exception {
+    private static int runBinary(File bin, DirtyFragVrReporter reporter, int encapPort,
+                                 int spi, byte[] aesKey, int senderPort,
+                                 List<String> vrArgs) throws Exception {
         List<String> command = new ArrayList<>();
         command.add(bin.getAbsolutePath());
         command.add("--encap-port");
@@ -143,6 +208,7 @@ public final class DfRootRunner {
         command.add(Integer.toUnsignedString(spi));
         command.add("--aes-key");
         command.add(hex(aesKey));
+        command.addAll(vrArgs);
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.redirectErrorStream(true);
         Process process = builder.start();

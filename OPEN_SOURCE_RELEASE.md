@@ -27,8 +27,8 @@ pwsh -NoProfile -File .\tools\verify_public_source.ps1
 - Shizuku 兼容层：Apache-2.0。
 - GhostLock：Apache-2.0。
 - KSuRoot 动态载荷组件：Apache-2.0。
-- DirtyFrag 原生链：按 `LICENSE_REVIEW.md` 和 `NOTICE.md` 中的上游文件头及待核对说明归属，不声明为 MPL-2.0。
+- DirtyFrag VR 原生链：按 `LICENSE_REVIEW.md` 和 `NOTICE.md` 中的上游文件头及待核对说明归属，不声明为 MPL-2.0。
 
-DirtyFrag v1.16 同步自用户提供的 `DirtyFrag-master (1).zip`。公开源码中的 `manager/src/main/jni/dfroot/` 同时包含 DirtyFrag 原生代码、上游 LKM 文件和八个 KMI 内核模块构建产物；月虹只保留当前应用的设备保护路径和管理器选择交接，DirtyFrag 直接执行所选管理器的 `libksud.so`，不调用激活脚本。目录和二进制中的 `dfroot` 是 DirtyFrag 上游协议名称，不代表另一个上游来源。
+DirtyFrag VR v1.16-vr 同步自用户提供的 `DirtyFalg-vr-master.zip`。公开源码中的 `manager/src/main/jni/dfroot/` 包含 native 链和 VR LKM 源码，`assistant/src/main/jni/vrext/` 提供 boot.img / OTA 偏移解析。模式直接接收助手传入的管理器包名和 ksud 路径。当前八个 KMI 二进制仍来自 DirtyFrag v1.16，不含 VR 配置槽；启用 VR 探针处理时 launcher 会拒绝继续，需用匹配 DDK 镜像重建。目录和二进制中的 `dfroot` 是上游协议名称。
 
 完整条款和上游归属见 `LICENSE`、`LICENSES/` 与 `NOTICE.md`。

@@ -1,6 +1,6 @@
 # 月虹提权助手
 
-月虹提权助手是一个内置 Stellar Manager、Server、API 与 DirtyFrag v1.16 的 Android 提权工作台。应用不再依赖外部 Shizuku 或外部 Stellar 管理器，可直接在应用内通过 Android 无线调试完成 Stellar 自激活，再使用 `Stellar.newProcess()` 执行命令；DirtyFrag 作为独立的 Android 12+ 模式运行。
+月虹提权助手是一个内置 Stellar Manager、Server、API 与 DirtyFrag VR 的 Android 提权工作台。应用不再依赖外部 Shizuku 或外部 Stellar 管理器，可直接在应用内通过 Android 无线调试完成 Stellar 自激活，再使用 `Stellar.newProcess()` 执行命令；DirtyFrag VR 作为独立的 Android 12+ 模式运行。
 
 - 应用 ID：`roro.stellar.yuehong`
 - 版本：`v1.6.3`（`versionCode 163`）
@@ -16,7 +16,7 @@
 4. 服务已启动但权限未确认时，使用 Stellar 自身授权页完成显式授权。
 5. 授权后进入命令工作台，终端和本地提权文件都通过 `Stellar.newProcess()` 执行。
 6. Stellar 提权使用 APK 内置提权文件手动选择，或导入本地载荷；提权执行不再请求设备匹配和载荷下载服务。
-7. DirtyFrag 模式单独运行用户提供的 DirtyFrag v1.16 上游 native 链，获取临时 Root 后由 bootstrap 直接执行所选管理器的 `libksud.so`。
+7. DirtyFrag VR 模式单独运行 DirtyFrag v1.16-vr native 链；管理器包名和识别器返回的 ksud 路径由助手直接传入，bootstrap 完成管理器交接。
 8. 提权成功后可按原流程检测并激活 KernelSU；KernelSU 接管后的 `su` 不可用时立即停止后续命令。
 
 应用保留正式版包名；使用相同证书签名时可覆盖安装现有正式版。公开源码不附带发行证书。整合工程未使用 Stellar 上游的 `sharedUserId`。
@@ -25,7 +25,7 @@
 
 ```text
 assistant/  月虹提权助手 UI、启动验证、本地载荷和提权业务
-manager/    Android 宿主、自激活界面、无线调试、授权、Binder 接收与 DirtyFrag 原生链
+manager/    Android 宿主、自激活界面、无线调试、授权、Binder 接收与 DirtyFrag VR 原生链
 server/     以 ADB shell 或 Root 身份运行的 Stellar 特权服务
 api/        随工程固定版本交付的 Stellar API、AIDL、Provider 与共享代码
 shizuku/    Stellar 内部保留的 Shizuku 兼容层
@@ -39,7 +39,7 @@ LICENSES/   第三方许可证文本
 - [Stellar](https://github.com/roro2239/Stellar)：内置的 Manager、Server 与核心服务框架。
 - [GhostLock-App](https://github.com/YuKongA/ghostlock-app)：嵌入助手 APK 的上游 GhostLock 应用界面、Native 核心、OTA 解析器和内核 profile。
 - [KSuRoot](https://github.com/hmascs/KSuRoot/)：APK 内置提权载荷来源。
-- [DirtyFrag](https://github.com/mitschud/DirtyFrag)：DirtyFrag v1.16 原生提权链与 KMI 内核模块唯一上游来源；本工程同步自用户提供的 `DirtyFrag-master (1).zip`。
+- [DirtyFrag](https://github.com/mitschud/DirtyFrag)：DirtyFrag 原生提权链来源；本工程移植用户提供的 v1.16-vr 源码。
 
 其他第三方代码的许可证和归属见 [NOTICE.md](NOTICE.md) 与 [LICENSES](LICENSES)。
 
@@ -101,7 +101,7 @@ out/mapping/mapping-v1.6.3.txt
 - 有线 vivo/iQOO 提权的在线响应、资源元数据和线路票据继续执行 Ed25519 与 SHA-256 校验。
 - 本地文件先复制到应用私有缓存，再由 Stellar 写入 `/data/local/tmp/preload.so`；不会修改用户选择的原文件。
 - 正式运营接口仍校验应用 ID 和正式签名证书；自行重签名的构建不会连接正式服务。
-- DirtyFrag 入口在所有系统版本都显示；Android 12 以下仅禁用进入操作，`/dev/df` 已存在时再次点击会安全跳过，重启后可重新运行。
+- DirtyFrag VR 入口在所有系统版本都显示；Android 12 以下仅禁用进入操作。VR 探针处理默认关闭，只有用户手动开启后才使用当前内核 BTF 或提供的偏移；`/dev/df` 已存在时再次点击会安全跳过，重启后可重新运行。
 
 ## 许可与归属
 
@@ -112,7 +112,7 @@ out/mapping/mapping-v1.6.3.txt
 - Stellar 中源自 Shizuku 的文件保留 Apache-2.0。
 - GhostLock 源码保留 Apache-2.0。
 - KSuRoot 本地载荷组件保留 Apache-2.0。
-- DirtyFrag 原生链按上游文件头与待核对的上游许可证说明归属，不声明为 MPL-2.0。
+- DirtyFrag VR 原生链按上游文件头与待核对的上游许可证说明归属，不声明为 MPL-2.0。
 
 根目录 [LICENSE](LICENSE) 为 MPL-2.0 完整文本。完整归属与修改说明见 [NOTICE.md](NOTICE.md)，第三方许可文本见 [LICENSES](LICENSES)。发布前可运行 `tools/verify_public_source.ps1` 检查配置、密钥文件和构建产物是否被误加入。
 ## 提权模式页面
@@ -121,8 +121,8 @@ out/mapping/mapping-v1.6.3.txt
 
 - **GhostLock**：按钮打开同一 APK 内嵌的上游 GhostLock 界面。profile、OTA 解析、Shizuku 和 Native 提权流程由上游实现处理。
 - **通用提权助手 · Stellar**：使用 APK 内置提权文件手动选择、本地文件导入、自激活和命令控制台。
-- **DirtyFrag v1.16**：入口始终显示，只有 Android 12+ 设备可以进入；使用 DirtyFrag 上游八个 KMI 模块构建产物，获取临时 Root 后由 bootstrap 直接把所选包名传给管理器的 `libksud.so`。
+- **DirtyFrag VR**：入口始终显示，只有 Android 12+ 设备可以进入。管理器选择和 ksud 路径由助手识别器直接传入。VR 探针处理由用户手动开启，默认关闭；偏移可由运行内核 BTF 自动读取，也可从含 BTF 的 boot.img / OTA payload 解析或手动填写。
 
-DirtyFrag 的临时文件位于应用的 device-protected files 目录，bootstrap 不会清理整个 `/data/local/tmp`。DirtyFrag 上游版本、KMI 构建产物和许可证核对见 [LICENSE_REVIEW.md](LICENSE_REVIEW.md) 与 [NOTICE.md](NOTICE.md)。原生文件名中保留上游使用的 `dfroot` 模块和库名，以维持 DirtyFrag 的内核模块协议。
+DirtyFrag VR 的临时文件位于应用的 device-protected files 目录，bootstrap 不会清理整个 `/data/local/tmp`。当前八个预编译 KMI 模块仍是 DirtyFrag v1.16 版本，不含 VR 配置槽；启用 VR 探针处理时 native launcher 会拒绝继续，需先用匹配的 DDK 镜像重建模块。上游版本、KMI 构建产物和许可证核对见 [LICENSE_REVIEW.md](LICENSE_REVIEW.md) 与 [NOTICE.md](NOTICE.md)。原生文件名保留上游的 `dfroot` 模块和库名，以维持内核模块协议。
 
 GhostLock 上游源码及本次同步锚点见 `third_party/ghostlock/UPSTREAM_SOURCE.md`。正式提权助手 APK 同时包含从上游源码构建的 GhostLock Native 库与 Rust 提取器。

@@ -1,9 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 
-# DirtyFrag 1.16 native payloads from DirtyFrag-master (1).zip.  The parent
-# manager CMake file owns the Android toolchain and ABI selection.  The
-# upstream executable names are kept because the launcher and hand-off
-# protocol expect libdfroot.so and libbootstrap.so.
+# DirtyFrag VR userspace payloads. The parent manager CMake file owns the
+# Android toolchain and ABI selection. The native executable names remain
+# libdfroot.so and libbootstrap.so for the existing hand-off protocol.
 
 set(DIRTYFRAG_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(DIRTYFRAG_CMAKE_BIN_DIR ${CMAKE_CURRENT_BINARY_DIR})

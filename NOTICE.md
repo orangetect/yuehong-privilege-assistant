@@ -2,7 +2,7 @@
 
 ## 月虹提权助手
 
-月虹提权助手是基于 Stellar、KSuRoot 与 DirtyFrag 集成和扩展的 Android 工程。GhostLock 的 Android Activity、profile/OTA 解析、Native 核心和 Rust 提取器来自上游源码，并通过按钮在同一 APK 中打开；助手没有另行实现这些 GhostLock 流程。
+月虹提权助手是基于 Stellar、KSuRoot 与 DirtyFrag VR 集成和扩展的 Android 工程。GhostLock 的 Android Activity、profile/OTA 解析、Native 核心和 Rust 提取器来自上游源码，并通过按钮在同一 APK 中打开；助手没有另行实现这些 GhostLock 流程。
 
 本工程的月虹集成与修改部分采用 Mozilla Public License 2.0。完整文本位于根目录 `LICENSE` 与 `LICENSES/MPL-2.0.txt`。
 
@@ -53,12 +53,13 @@ Stellar 保留的 Shizuku AIDL 与兼容层继续遵循 Apache-2.0。完整文�
 
 版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。
 
-## DirtyFrag native chain
+## DirtyFrag VR native chain
 
 - Project: DirtyFrag
 - Source: https://github.com/mitschud/DirtyFrag
-- Synced source: user-provided `DirtyFrag-master (1).zip` (DirtyFrag v1.16, SHA-256 `910E53DB260D89DF9CC73244B6D03860B2CE78E1BC28B0A72C11B9B4E11E1B7D`)
-- Included files: `manager/src/main/jni/dfroot/` contains the DirtyFrag 1.16 native sources and eight upstream KMI module artifacts. The bootstrap integration keeps YueHong's device-protected package path and reads the selected manager package directly; DirtyFrag does not invoke an activation shell script.
+- Synced source: user-provided `DirtyFalg-vr-master.zip` (DirtyFrag v1.16-vr, version code 46, SHA-256 `B6997E293DFCC2D9FF252FA1E202900880A01FB40631E755F4F4BCF3CDCF5BDA`)
+- Included files: `manager/src/main/jni/dfroot/` contains the DirtyFrag native chain and VR probe handling; `assistant/src/main/jni/vrext/` parses the offset from boot images and OTA payloads. The assistant passes the selected manager package and recognized ksud path directly to the mode.
+- Build limitation: the eight checked-in KMI modules are from DirtyFrag v1.16 and do not contain the VR configuration slot. If VR probe removal is enabled, the launcher refuses to continue until those modules are rebuilt from the VR source with the matching DDK images.
 - License status: `lkm/dfroot.c` declares GPL and `include.inc` retains an Odzhan BSD-style license header. The upstream repository does not expose one clear root-level LICENSE covering every file, so the remaining DirtyFrag files are retained with an explicit “upstream license pending further verification” note in `LICENSE_REVIEW.md`. These files are not relicensed as MPL-2.0.
 
 版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。

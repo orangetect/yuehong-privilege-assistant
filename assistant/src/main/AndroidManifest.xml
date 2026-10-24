@@ -23,9 +23,9 @@
             android:authorities="${applicationId}.ghostlock.ota"
             android:exported="false" />
         <activity
-            android:name=".dfroot.DfRootActivity"
+            android:name=".dfroot.DirtyFragVrActivity"
             android:exported="false"
-            android:label="@string/dfroot_title"
+            android:label="@string/dirtyfrag_vr_title"
             android:theme="@style/Theme.Stellar" />
         <activity
             android:name=".activities.MainActivity"

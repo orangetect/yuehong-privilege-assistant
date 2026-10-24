@@ -159,7 +159,8 @@ function Verify-ReleaseApk {
         'lib/arm64-v8a/librish.so',
         'lib/arm64-v8a/libstellar.so',
         'lib/arm64-v8a/libghostlock.so',
-        'lib/arm64-v8a/libextract.so'
+        'lib/arm64-v8a/libextract.so',
+        'lib/arm64-v8a/libvrext.so'
     )
     $zip = [IO.Compression.ZipFile]::OpenRead($ApkPath)
     try {
