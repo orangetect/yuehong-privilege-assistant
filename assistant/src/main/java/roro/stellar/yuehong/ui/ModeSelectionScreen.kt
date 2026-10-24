@@ -58,7 +58,18 @@ internal fun ModeSelectionScreen(
     var selectedPackage by remember(context) {
         mutableStateOf(KernelSuManagerSelection.selectedPackage(context))
     }
+    var refreshingManager by remember { mutableStateOf(true) }
     var showManagerPicker by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        refreshingManager = true
+        withContext(Dispatchers.IO) {
+            if (KernelSuManagerSelection.selectedManagerTarget(context) == null) {
+                KernelSuManagerSelection.refreshSelectedManager(context)
+            }
+        }
+        refreshingManager = false
+    }
 
     Box(
         modifier = Modifier
@@ -101,6 +112,7 @@ internal fun ModeSelectionScreen(
             }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
+                enabled = !refreshingManager,
                 onClick = onOpenStellar,
             ) {
                 Text(
@@ -110,7 +122,7 @@ internal fun ModeSelectionScreen(
             }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = dfRootPlatformAvailable,
+                enabled = dfRootPlatformAvailable && !refreshingManager,
                 onClick = onOpenDfRoot,
             ) {
                 Column(
@@ -129,6 +141,7 @@ internal fun ModeSelectionScreen(
             }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
+                enabled = !refreshingManager,
                 onClick = onOpenGhostLock,
             ) {
                 Text(
@@ -138,6 +151,7 @@ internal fun ModeSelectionScreen(
             }
             MotionButton(
                 modifier = Modifier.fillMaxWidth(),
+                enabled = !refreshingManager,
                 onClick = onOpenVivoWired,
             ) {
                 Text(
@@ -152,8 +166,15 @@ internal fun ModeSelectionScreen(
         KernelSuManagerPickerDialog(
             selectedPackage = selectedPackage,
             onDismiss = { showManagerPicker = false },
-            onSelected = { packageName ->
-                selectedPackage = KernelSuManagerSelection.saveSelectedPackage(context, packageName)
+            onSelected = { manager ->
+                if (manager == null) {
+                    selectedPackage = KernelSuManagerSelection.saveSelectedPackage(
+                        context,
+                        KernelSuManagerSelection.DEFAULT_PACKAGE,
+                    )
+                } else {
+                    selectedPackage = KernelSuManagerSelection.saveSelectedManager(context, manager)
+                }
                 showManagerPicker = false
             },
         )
@@ -164,7 +185,7 @@ internal fun ModeSelectionScreen(
 private fun KernelSuManagerPickerDialog(
     selectedPackage: String,
     onDismiss: () -> Unit,
-    onSelected: (String) -> Unit,
+    onSelected: (KernelSuManagerInfo?) -> Unit,
 ) {
     val context = LocalContext.current
     var managers by remember { mutableStateOf<List<KernelSuManagerInfo>?>(null) }
@@ -208,7 +229,7 @@ private fun KernelSuManagerPickerDialog(
                                 KernelSuManagerRow(
                                     manager = manager,
                                     selected = manager.packageName == selectedPackage,
-                                    onClick = { onSelected(manager.packageName) },
+                                    onClick = { onSelected(manager) },
                                 )
                             }
                         }
@@ -217,7 +238,16 @@ private fun KernelSuManagerPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSelected(KernelSuManagerSelection.DEFAULT_PACKAGE) }) {
+            TextButton(
+                enabled = managers != null,
+                onClick = {
+                    onSelected(
+                        managers?.firstOrNull {
+                            it.packageName == KernelSuManagerSelection.DEFAULT_PACKAGE
+                        },
+                    )
+                },
+            ) {
                 Text(stringResource(R.string.kernel_su_manager_use_default))
             }
         },

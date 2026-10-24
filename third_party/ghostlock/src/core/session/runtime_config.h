@@ -20,9 +20,10 @@ namespace ghostlock::config {
    * previous run's markers can never be misread; falls back to the legacy
    * home-dir name for CLI runs. */
         std::string ksu_log_path = "/data/local/tmp/.ghostlock_ksu.log";
-        /* ksud binary from GHOSTLOCK_KSUD, shell-escaped for the root
-         * script; empty keeps the script's own search order. */
+        /* Selected ksud binary from GHOSTLOCK_KSUD, shell-escaped for the root script. */
         std::string ksud_path;
+        /* The selected manager package passed to `ksud late-load`. */
+        std::string ksud_package;
         /* Kernel-log dump directory from --dump-kernel-log; empty disables the dump. */
         std::string debug_dir;
 

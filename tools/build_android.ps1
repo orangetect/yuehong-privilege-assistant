@@ -34,7 +34,7 @@ try {
     try {
         & '.\gradlew.bat' $gradleTask '--no-daemon'
         if ($LASTEXITCODE -ne 0) {
-            throw "Gradle build failed with exit code $LASTEXITCODE: $gradleTask"
+            throw "Gradle build failed with exit code ${LASTEXITCODE}: $gradleTask"
         }
     } finally {
         Pop-Location

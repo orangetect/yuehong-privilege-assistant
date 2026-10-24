@@ -3,7 +3,6 @@ package com.ghostlock.app.shizuku
 import android.content.Context
 import android.os.Process
 import androidx.annotation.Keep
-import com.ghostlock.app.data.ManagerScanner
 import com.ghostlock.app.data.NativeProfileDocument
 import java.io.File
 import java.io.RandomAccessFile
@@ -28,7 +27,9 @@ class GhostlockUserService(private val context: Context) : IGhostlockUserService
         debugDir: String?,
         callback: IGhostlockCallback,
         statusCallback: IGhostlockStatusCallback,
-    ) = runExploitAsManager(primaryCpu, consumerCpu, safeMode, forceAttack, profileBlob, debugDir, null, callback, statusCallback)
+    ) = runExploitAsManager(
+        primaryCpu, consumerCpu, safeMode, forceAttack, profileBlob, debugDir, null, null, callback, statusCallback,
+    )
 
     override fun runExploitAsManager(
         primaryCpu: Int,
@@ -38,6 +39,7 @@ class GhostlockUserService(private val context: Context) : IGhostlockUserService
         profileBlob: ByteArray,
         debugDir: String?,
         managerPackage: String?,
+        ksudPath: String?,
         callback: IGhostlockCallback,
         statusCallback: IGhostlockStatusCallback,
     ) {
@@ -72,18 +74,16 @@ class GhostlockUserService(private val context: Context) : IGhostlockUserService
                 }
                 callback.onLog("<s> Shizuku ready: uid=${Process.myUid()} Seccomp=0")
                 callback.onLog("<s> kernel: $release")
-                // Same resolution as the direct path: chosen manager first,
-                // then the built-ins. Native gets the path via GHOSTLOCK_KSUD.
-                val pm = context.packageManager
-                val ksudPath = ManagerScanner.resolvePackages(managerPackage)
-                    .asSequence()
-                    .map { pkg ->
-                        runCatching {
-                            File(pm.getApplicationInfo(pkg, 0).nativeLibraryDir, "libksud.so")
-                        }.getOrNull()?.takeIf { it.isFile }
-                    }
-                    .firstOrNull { it != null }
-                ksudPath?.let { callback.onLog("<s> ksud resolved: ${it.absolutePath}") }
+                val selectedKsud = ksudPath
+                    ?.trim()
+                    ?.takeIf(String::isNotEmpty)
+                    ?.let(::File)
+                    ?.takeIf { it.isFile && it.canExecute() }
+                if (selectedKsud != null) {
+                    callback.onLog("<s> selected manager ${managerPackage.orEmpty()} ksud: ${selectedKsud.absolutePath}")
+                } else {
+                    callback.onLog("<s> selected manager ${managerPackage.orEmpty()} ksud path is missing or not executable")
+                }
                 val nativeLog = File(workDir, ".ghostlock_native.log")
                 // U01-S14: per-run KernelSU log so a previous run's markers can
                 // never satisfy the handoff probe; the native process receives
@@ -117,8 +117,11 @@ class GhostlockUserService(private val context: Context) : IGhostlockUserService
                         environment()["TMPDIR"] = workDir.absolutePath
                         environment()["HOME"] = workDir.absolutePath
                         environment()["GHOSTLOCK_KSU_LOG"] = ksuLog.absolutePath
-                        if (ksudPath != null) {
-                            environment()["GHOSTLOCK_KSUD"] = ksudPath.absolutePath
+                        managerPackage?.trim()?.takeIf(String::isNotEmpty)?.let {
+                            environment()["GHOSTLOCK_KSU_PACKAGE"] = it
+                        }
+                        if (selectedKsud != null) {
+                            environment()["GHOSTLOCK_KSUD"] = selectedKsud.absolutePath
                         }
                     }
                     .start()

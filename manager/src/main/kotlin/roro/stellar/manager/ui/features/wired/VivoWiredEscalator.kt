@@ -163,8 +163,16 @@ internal class VivoWiredEscalator(
             }
             update(VivoWiredStage.ActivatingJailbreak, "正在激活 $activationLabel")
             val managerPackage = KernelSuManagerSelection.selectedPackage(appContext)
+            val manager = KernelSuManagerSelection.selectedManagerTarget(appContext)
+                ?.takeIf { it.packageName == managerPackage }
+                ?: throw IOException(
+                    "未找到所选 KernelSU 管理器 $managerPackage 的兼容 ksud",
+                )
+            val targetKsudPath = resolveTargetKsudPath(client, manager.libKsudPath, managerPackage)
             log("已选择 KernelSU 管理器包名：$managerPackage")
-            val activationCommand = "YHROOT_KSU_PACKAGE=${shellQuote(managerPackage)} " +
+            log("目标设备 ksud 路径：$targetKsudPath")
+            val activationCommand = "YHROOT_KSUD=${shellQuote(targetKsudPath)} " +
+                "YHROOT_KSU_PACKAGE=${shellQuote(managerPackage)} " +
                 "/system/bin/sh ${shellQuote(ACTIVATION_SCRIPT_DESTINATION)}"
             val activation = client.shell(
                 "chmod 0700 ${shellQuote(ACTIVATION_SCRIPT_DESTINATION)} && " +
@@ -272,6 +280,43 @@ internal class VivoWiredEscalator(
                 resumeRemoteParts = true
             }
         }
+    }
+
+    /** Resolve the same recognized library name inside the selected package on the USB target. */
+    private suspend fun resolveTargetKsudPath(
+        client: UsbAdbClient,
+        recognizedPath: String,
+        managerPackage: String,
+    ): String {
+        val packagePaths = client.shell("pm path ${shellQuote(managerPackage)}")
+        if (packagePaths.exitCode != 0) {
+            throw IOException("目标设备未安装所选管理器 $managerPackage：${packagePaths.output.trim()}")
+        }
+        val apkPath = packagePaths.output.lineSequence()
+            .map(String::trim)
+            .firstOrNull { it.startsWith("package:") && it.endsWith(".apk") }
+            ?.removePrefix("package:")
+            ?: throw IOException("无法读取目标设备所选管理器 $managerPackage 的 APK 路径")
+        val appDirectory = apkPath.substringBeforeLast('/', "")
+        val appDirectoryParts = appDirectory.removePrefix("/data/app/").split('/')
+        if (!appDirectory.startsWith("/data/app/") || appDirectoryParts.size != 2) {
+            throw IOException("目标设备 APK 不在受支持的 /data/app/<安装目录>/<包名目录> 路径中：$apkPath")
+        }
+        if (appDirectoryParts.last().contains("android", ignoreCase = true)) {
+            throw IOException("目标设备管理器包名目录包含 android：${appDirectoryParts.last()}")
+        }
+        val libraryName = recognizedPath.substringAfterLast('/')
+        val targetPath = "$appDirectory/lib/arm64/$libraryName"
+        val probe = client.shell(
+            "test -x ${shellQuote(targetPath)} && ${shellQuote(targetPath)} late-load --help 2>&1",
+        )
+        val expectedHelp = listOf("late-load", "--kmi", "--allow-shell", "--package-name")
+        if (probe.exitCode != 0 || expectedHelp.any { it !in probe.output }) {
+            throw IOException(
+                "目标设备没有所选管理器 $managerPackage 对应的兼容 ksud：$targetPath",
+            )
+        }
+        return targetPath
     }
 
     fun reset() {

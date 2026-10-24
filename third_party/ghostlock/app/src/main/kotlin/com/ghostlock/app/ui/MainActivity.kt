@@ -26,7 +26,15 @@ import com.ghostlock.app.R
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<GhostlockViewModel> {
         viewModelFactory {
-            initializer { GhostlockViewModel(AndroidGhostlockRepository(applicationContext)) }
+            initializer {
+                GhostlockViewModel(
+                    AndroidGhostlockRepository(
+                        applicationContext,
+                        launchManagerPackage = this@MainActivity.intent.getStringExtra(EXTRA_MANAGER_PACKAGE),
+                        launchKsudPath = this@MainActivity.intent.getStringExtra(EXTRA_KSUD_PATH),
+                    ),
+                )
+            }
         }
     }
 
@@ -152,8 +160,10 @@ class MainActivity : ComponentActivity() {
         )
     }
 
-    private companion object {
+    companion object {
         const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
+        const val EXTRA_MANAGER_PACKAGE = "com.ghostlock.app.extra.MANAGER_PACKAGE"
+        const val EXTRA_KSUD_PATH = "com.ghostlock.app.extra.KSUD_PATH"
     }
 }
 

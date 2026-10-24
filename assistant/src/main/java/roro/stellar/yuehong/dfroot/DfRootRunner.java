@@ -2,7 +2,6 @@ package roro.stellar.yuehong.dfroot;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.content.pm.ApplicationInfo;
 import android.net.IpSecAlgorithm;
 import android.net.IpSecManager;
 import android.net.IpSecTransform;
@@ -22,8 +21,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 /** Stages the selected KernelSU manager and runs the upstream DirtyFrag chain. */
 public final class DfRootRunner {
@@ -52,16 +49,25 @@ public final class DfRootRunner {
             reporter.report("already hooked, skipping\n");
             return 0;
         }
-        String managerPackage = KernelSuManagerSelection.INSTANCE.selectedPackage(appContext);
-        ApplicationInfo manager = appContext.getPackageManager()
-                .getApplicationInfo(managerPackage, 0);
+        String selectedPackage = KernelSuManagerSelection.INSTANCE.selectedPackage(appContext);
+        roro.stellar.yuehong.shell.KernelSuManagerTarget manager =
+                KernelSuManagerSelection.INSTANCE.selectedManagerTarget(appContext);
+        if (manager == null) {
+            throw new IOException("No compatible ksud found for selected manager "
+                    + selectedPackage);
+        }
+        String managerPackage = manager.getPackageName();
+        if (!selectedPackage.equals(managerPackage)) {
+            throw new IOException("Recognized ksud does not match selected manager "
+                    + selectedPackage);
+        }
 
         File work = new File(deContext.getFilesDir(), WORK_DIRECTORY);
         if (!work.exists() && !work.mkdirs()) {
             throw new IOException("unable to create DirtyFrag staging directory");
         }
         File ksud = new File(deContext.getFilesDir().getParentFile(), KSUD_FILE);
-        stageManagerKsud(manager, ksud);
+        stageManagerKsud(new File(manager.getLibKsudPath()), ksud);
         stageBinary(new File(deContext.getApplicationInfo().nativeLibraryDir, BOOTSTRAP_BIN),
                 new File(work, BOOTSTRAP_FILE));
 
@@ -109,43 +115,9 @@ public final class DfRootRunner {
         }
     }
 
-    private static void stageManagerKsud(ApplicationInfo manager, File destination)
-            throws IOException {
-        if (manager.nativeLibraryDir != null) {
-            File extracted = new File(manager.nativeLibraryDir, "libksud.so");
-            if (extracted.isFile()) {
-                stageBinary(extracted, destination);
-                return;
-            }
-        }
-        List<String> apks = new ArrayList<>();
-        if (manager.sourceDir != null) apks.add(manager.sourceDir);
-        if (manager.splitSourceDirs != null) {
-            for (String split : manager.splitSourceDirs) if (split != null) apks.add(split);
-        }
-        // Do not accept the first native entry from a multi-ABI APK: ZIP entry
-        // order is not stable and could select an incompatible 32-bit ksud.
-        String[] abiEntries = {"lib/arm64-v8a/libksud.so", "lib/arm64/libksud.so"};
-        for (String apk : apks) {
-            try (ZipFile zip = new ZipFile(apk)) {
-                for (String abiEntry : abiEntries) {
-                    ZipEntry match = zip.getEntry(abiEntry);
-                    if (match == null || match.isDirectory()) continue;
-                    try (InputStream input = zip.getInputStream(match);
-                         FileOutputStream output = new FileOutputStream(destination)) {
-                        input.transferTo(output);
-                    }
-                    if (!destination.setExecutable(true, false)) {
-                        throw new IOException("unable to mark staged ksud executable");
-                    }
-                    return;
-                }
-            } catch (IOException ignored) {
-                // Try the next split APK before reporting a missing library.
-            }
-        }
-        throw new IOException("libksud.so not found for selected manager "
-                + manager.packageName);
+    private static void stageManagerKsud(File source, File destination) throws IOException {
+        if (!source.isFile()) throw new IOException("selected ksud is missing: " + source);
+        stageBinary(source, destination);
     }
 
     private static void stageBinary(File source, File destination) throws IOException {

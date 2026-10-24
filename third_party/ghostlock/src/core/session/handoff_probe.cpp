@@ -84,10 +84,12 @@ namespace ghostlock::session {
                  path.data());
         const bool opened = for_each_line(resolved.data(), [&](std::string_view line) {
             if (line.contains("[+] KernelSU module loaded") ||
-                line.contains("[+] KernelSU already loaded")) {
+                line.contains("[+] KernelSU already loaded") ||
+                line.contains("[+] KernelSU late-load command completed")) {
                 loaded = true;
             }
-            if (line.contains("[!] KernelSU module not loaded")) {
+            if (line.contains("[!] KernelSU module not loaded") ||
+                line.contains("[!] KernelSU late-load command failed")) {
                 failed = true;
             }
         });

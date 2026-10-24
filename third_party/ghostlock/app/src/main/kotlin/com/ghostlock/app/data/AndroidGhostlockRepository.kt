@@ -40,7 +40,11 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /** Android implementation of the domain repository. All platform I/O lives here. */
-class AndroidGhostlockRepository(context: Context) : GhostlockRepository {
+class AndroidGhostlockRepository(
+    context: Context,
+    private val launchManagerPackage: String? = null,
+    private val launchKsudPath: String? = null,
+) : GhostlockRepository {
     private companion object {
         const val OffsetsFileName = "offsets.conf"
         const val LegacyOffsetsFileName = "offsets.json"
@@ -211,6 +215,10 @@ class AndroidGhostlockRepository(context: Context) : GhostlockRepository {
     }
 
     override fun selectedManagerPackage(): String? {
+        launchManagerPackage
+            ?.trim()
+            ?.takeIf(AssistantManagerPackagePattern::matches)
+            ?.let { return it }
         val managerPreferences = appContext.getSharedPreferences(
             AssistantManagerPreferencesName,
             Context.MODE_PRIVATE,
@@ -501,9 +509,10 @@ class AndroidGhostlockRepository(context: Context) : GhostlockRepository {
                     dumpRuntimeProfile(archivedLog, writeSidecar, release, pair, runtimeBlob)
                     archivedLog("<b> starting UserService")
                     resetRunState()
+                    val ksud = resolveKsudPath(archivedLog)
                     shizukuRunner.run(
                         pair, safeModeEnabled, forceAttackTest, profileBlob, debugDir,
-                        selectedManagerPackage(), archivedLog,
+                        selectedManagerPackage(), ksud?.absolutePath, archivedLog,
                     ) { step, status ->
                         if (status == "disabled") clearRunState() else applyRunStatus(step, status)
                     }
@@ -725,6 +734,9 @@ class AndroidGhostlockRepository(context: Context) : GhostlockRepository {
                     environment()["TMPDIR"] = workDir.absolutePath
                     environment()["HOME"] = workDir.absolutePath
                     environment()["GHOSTLOCK_KSU_LOG"] = ksuLog.absolutePath
+                    selectedManagerPackage()?.let {
+                        environment()["GHOSTLOCK_KSU_PACKAGE"] = it
+                    }
                     if (ksud != null) environment()["GHOSTLOCK_KSUD"] = ksud.absolutePath
                 }
             onLog("<b> starting native: ${binary.absolutePath}")
@@ -1087,17 +1099,21 @@ class AndroidGhostlockRepository(context: Context) : GhostlockRepository {
 
     private fun firstValidProperty(vararg keys: String): String? = keys.asSequence().firstNotNullOfOrNull { validDeviceName(systemProperty(it)) }
 
-    /** First ksud binary in resolvePackages order, or null. */
+    /** The path recognized by the assistant for its selected manager, or null. */
     private fun resolveKsudPath(onLog: (String) -> Unit): File? {
-        val packages = ManagerScanner.resolvePackages(selectedManagerPackage())
-        for (packageName in packages) {
-            val source = runCatching {
-                File(appContext.packageManager.getApplicationInfo(packageName, 0).nativeLibraryDir, "libksud.so")
-            }.getOrNull()?.takeIf { it.isFile } ?: continue
-            return source
+        val managerPackage = selectedManagerPackage()
+        val path = launchKsudPath?.trim().orEmpty()
+        if (managerPackage.isNullOrBlank() || path.isEmpty()) {
+            onLog("<k> selected manager package or ksud path was not provided")
+            return null
         }
-        onLog("<k> no manager app with libksud.so found")
-        return null
+        val ksud = File(path)
+        if (!ksud.isFile || !ksud.canExecute()) {
+            onLog("<k> selected manager $managerPackage ksud is missing or not executable: $path")
+            return null
+        }
+        onLog("<k> selected manager $managerPackage ksud: ${ksud.absolutePath}")
+        return ksud
     }
 
     private suspend fun runProcess(

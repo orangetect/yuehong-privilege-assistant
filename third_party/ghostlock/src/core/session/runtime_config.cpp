@@ -47,6 +47,15 @@ static int32_t runtime_config_validate_cpus(config::RuntimeConfig *config) {
     return 0;
 }
 
+static std::string shell_single_quote_escape(const char *value) {
+    std::string escaped;
+    for (const char *p = value; *p; p++) {
+        if (*p == '\'') escaped += "'\\''";
+        else escaped += *p;
+    }
+    return escaped;
+}
+
 /* Apply profile CPU recommendations only where Kotlin/environment did not
  * make an explicit selection. Existing explicit choices remain authoritative. */
 int32_t ghostlock::config::RuntimeConfig::apply_profile(const profile::TargetProfile *profile) {
@@ -77,16 +86,14 @@ static void runtime_config_init_paths(config::RuntimeConfig *config) {
                                ? std::string(ksu_log)
                                : config->home_dir + "/.ghostlock_ksu.log";
 
-    /* The value is embedded in shell single quotes by write_root_script;
-     * escape ' so a quote in the path cannot break the script. */
+    /* These values are embedded in shell single quotes by write_root_script. */
     const char *ksud = getenv("GHOSTLOCK_KSUD");
     if (ksud && ksud[0]) {
-        std::string escaped;
-        for (const char *p = ksud; *p; p++) {
-            if (*p == '\'') escaped += "'\\''";
-            else escaped += *p;
-        }
-        config->ksud_path = std::move(escaped);
+        config->ksud_path = shell_single_quote_escape(ksud);
+    }
+    const char *ksud_package = getenv("GHOSTLOCK_KSU_PACKAGE");
+    if (ksud_package && ksud_package[0]) {
+        config->ksud_package = shell_single_quote_escape(ksud_package);
     }
 }
 
@@ -99,6 +106,7 @@ int32_t ghostlock::config::RuntimeConfig::init() {
     root_script_path.clear();
     ksu_log_path.clear();
     ksud_path.clear();
+    ksud_package.clear();
     debug_dir.clear();
 
     runtime_config_init_cpus(this);

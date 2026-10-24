@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import roro.stellar.yuehong.BuildConfig
 import roro.stellar.yuehong.dfroot.DfRootActivity
 import roro.stellar.yuehong.shell.HttpStartupVerificationApi
+import roro.stellar.yuehong.shell.KernelSuManagerSelection
 import roro.stellar.yuehong.shell.StartupVerification
 import roro.stellar.yuehong.shell.StartupVerificationResult
 import com.ghostlock.app.ui.MainActivity as GhostlockMainActivity
@@ -53,7 +54,18 @@ fun StellarAssistantApp() {
 
         fun openGhostLockMode() {
             val activity = context as? Activity ?: return
-            activity.startActivity(Intent(activity, GhostlockMainActivity::class.java))
+            val manager = KernelSuManagerSelection.selectedManagerTarget(context)
+            val managerPackage = manager?.packageName
+                ?: KernelSuManagerSelection.selectedPackage(context)
+            activity.startActivity(
+                Intent(activity, GhostlockMainActivity::class.java).apply {
+                    putExtra(GhostlockMainActivity.EXTRA_MANAGER_PACKAGE, managerPackage)
+                    putExtra(
+                        GhostlockMainActivity.EXTRA_KSUD_PATH,
+                        manager?.libKsudPath.orEmpty(),
+                    )
+                },
+            )
         }
 
         fun openDfRootMode() {
