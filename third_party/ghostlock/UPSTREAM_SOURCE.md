@@ -2,13 +2,13 @@
 
 ## Source snapshot
 
-- Archive: `ghostlock-app-main (3).zip`, supplied on 2026-10-22
-- SHA-256: `953FA5F65F9AE6BAE79C16E4769F327A143F4DBB84729AA544C6141559FD4E4B`
+- Archive: `ghostlock-app-main.zip`, supplied on 2026-10-24
+- SHA-256: `8DFA1BE6F138A8FA17B1A081F63E5564165269D1FF6A8A84B8A12D7EB9ECA7B0`
 - Upstream app version name: `1.2`
 - Application ID: `com.ghostlock.app`
 - License: Apache-2.0
 
-The archive hash matches the previously supplied `(2).zip`; the two archives are byte-for-byte identical.
+Compared with the 2026-10-22 snapshot, this archive adds three kernel profiles and updates the profile index. The Android, native, and extractor source files are unchanged.
 
 ## Synced source
 
