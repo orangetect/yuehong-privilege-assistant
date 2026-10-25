@@ -76,5 +76,6 @@
 # Fix R8 missing classes for androidx.window
 -dontwarn androidx.window.extensions.**
 -dontwarn androidx.window.area.**
+-dontwarn androidx.window.sidecar.**
 -dontwarn androidx.window.reflection.**
 -dontwarn androidx.window.core.util.function.**

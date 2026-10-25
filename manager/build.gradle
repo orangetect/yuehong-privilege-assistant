@@ -15,11 +15,12 @@ android {
     namespace 'roro.stellar.manager'
     defaultConfig {
         applicationId "roro.stellar.yuehong"
-        minSdk 28
+        // The embedded upstream GhostLock module requires Android 12+.
+        minSdk 31
         versionCode rootProject.ext.yuehongVersionCode
         versionName rootProject.ext.yuehongVersionName
 
-        // 月虹提权助手与 GhostLock 运行目标均为 64 位 ARM 真机；去除模拟器/32 位重复库。
+        // 月虹提权助手的运行目标为 64 位 ARM 真机；去除模拟器/32 位重复库。
         ndk {
             abiFilters 'arm64-v8a'
         }
@@ -100,7 +101,7 @@ android {
         }
         jniLibs {
             useLegacyPackaging = true
-            keepDebugSymbols += ["**/libbs.so", "**/libionstack.so", "**/libghostlock.so", "**/libextract.so", "**/libksu_*.so"]
+            keepDebugSymbols += ["**/libbs.so", "**/libionstack.so", "**/libksu_*.so"]
         }
     }
 
@@ -116,19 +117,21 @@ autoResConfig {
     generateLocaleConfig = true
 }
 def collapseReleaseResourceNames = task('collapseReleaseResourceNames').doLast {
-    def aapt2 = Paths.get(project.android.sdkDirectory.path, 'build-tools', project.android.buildToolsVersion, 'aapt2')
+    def aapt2Name = System.getProperty('os.name').toLowerCase().contains('windows') ? 'aapt2.exe' : 'aapt2'
+    def aapt2 = Paths.get(project.android.sdkDirectory.path, 'build-tools', project.android.buildToolsVersion, aapt2Name)
     def zip = Paths.get(project.buildDir.path, 'intermediates',
             'optimized_processed_res', 'release', 'optimizeReleaseResources', 'resources-release-optimize.ap_')
     def optimized = new File("${zip}.opt")
-    def cmd = exec {
-        commandLine aapt2, 'optimize', '--collapse-resource-names',
-                '--resources-config-path', 'aapt2-resources.cfg',
-                '-o', optimized, zip
-        ignoreExitValue false
-    }
-    if (cmd.exitValue == 0) {
-        delete(zip)
-        optimized.renameTo("$zip")
+    def process = new ProcessBuilder(aapt2.toString(), 'optimize', '--collapse-resource-names',
+            '--resources-config-path', 'aapt2-resources.cfg', '-o', optimized.path, zip.toString())
+            .directory(project.projectDir)
+            .inheritIO()
+            .start()
+    def exitCode = process.waitFor()
+    if (exitCode != 0) throw new GradleException("aapt2 optimize failed with exit code ${exitCode}")
+    delete(zip)
+    if (!optimized.renameTo(zip.toFile())) {
+        throw new GradleException("Could not replace optimized resources archive: ${zip}")
     }
 }
 afterEvaluate {

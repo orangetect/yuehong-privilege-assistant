@@ -28,6 +28,8 @@ ko_target:
 libcxx_ko_target_off:
     .int ko_target - libcxx_data
 bootstrap_path:
+    // The app package is YueHong's namespace; keep bootstrap hand-off here
+    // because the UI stages the selected-manager bridge in this directory.
     .asciz "/data/user_de/0/roro.stellar.yuehong/files/dfroot/bootstrap"
 
     .align 4
