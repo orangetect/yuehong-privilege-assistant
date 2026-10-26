@@ -1,6 +1,6 @@
 # 开源发行说明
 
-此目录是月虹提权助手 v1.5.8 的公开源码快照，来源于当前权威开发仓库。
+此目录是月虹提权助手 v1.6.4 的公开源码快照，来源于当前权威开发仓库。
 
 ## 已移除的私有内容
 
@@ -8,7 +8,7 @@
 - `keystore.properties`、发行 JKS/KeyStore、证书私钥及签名口令。
 - APK、AAB、R8 mapping、Gradle/CMake/Rust 构建缓存、调试日志和 Codex 本地事务文件。
 - 公告页中原有的硬编码更新服务器地址；公开构建改从本地 `server.properties` 的 `updateUrl` 读取。
-- 当前版本字段统一为根工程 `build.gradle` 中的 `yuehongVersionCode=158` 与 `yuehongVersionName=v1.5.8`；`manager` Manifest 和 `assistant` BuildConfig 均引用该版本源。
+- 当前版本字段统一为根工程 `build.gradle` 中的 `yuehongVersionCode=164` 与 `yuehongVersionName=v1.6.4`；`manager` Manifest 和 `assistant` BuildConfig 均引用该版本源。
 
 ## 本地配置
 
@@ -27,8 +27,8 @@ pwsh -NoProfile -File .\tools\verify_public_source.ps1
 - Shizuku 兼容层：Apache-2.0。
 - GhostLock：Apache-2.0。
 - KSuRoot 动态载荷组件：Apache-2.0。
-- DirtyFrag 原生链：按 `LICENSE_REVIEW.md` 和 `NOTICE.md` 中的上游文件头及待核对说明归属，不声明为 MPL-2.0。
+- DirtyFrag VR 原生链：按 `LICENSE_REVIEW.md` 和 `NOTICE.md` 中的上游文件头及待核对说明归属，不声明为 MPL-2.0。
 
-DirtyFrag v1.15 同步自用户提供的 `DirtyFrag-master.zip`。公开源码中的 `manager/src/main/jni/dfroot/` 同时包含 DirtyFrag 原生代码、上游 LKM 文件和八个 KMI 内核模块构建产物；月虹修改的 bootstrap 会读取提权模式页保存的管理器包名，暂存对应 `libksud.so`，再直接调用 `ksud late-load --package-name`。目录和二进制中的 `dfroot` 是 DirtyFrag 上游协议名称，不代表另一个上游来源。
+DirtyFrag VR 上游仓库为 <https://github.com/DONGDERS/DirtyFalg-vr>；集成快照同步自用户提供的 `DirtyFalg-vr-master.zip`。公开源码中的 `manager/src/main/jni/dfroot/` 包含 native 链和 VR LKM 源码，`assistant/src/main/jni/vrext/` 提供 boot.img / OTA 偏移解析。模式直接接收助手传入的管理器包名和 ksud 路径。对仓库中的八个 KMI 二进制进行只读检查，均发现 VR 配置标记和 VR 探针处理代码；目标设备上的 KMI 兼容性仍需验证。目录和二进制中的 `dfroot` 是上游协议名称。
 
 完整条款和上游归属见 `LICENSE`、`LICENSES/` 与 `NOTICE.md`。

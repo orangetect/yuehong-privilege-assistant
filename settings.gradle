@@ -6,11 +6,12 @@ pluginManagement {
     }
 
     plugins {
-        id("com.android.application") version '8.13.2'
-        id("com.android.library") version '8.13.2'
-        id("org.jetbrains.kotlin.android") version '2.2.0'
-        id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
-        id("com.google.devtools.ksp") version "2.2.0-2.0.2"
+        id("com.android.application") version '9.1.1'
+        id("com.android.library") version '9.1.1'
+        id("org.jetbrains.kotlin.android") version '2.4.20'
+        id("org.jetbrains.kotlin.plugin.compose") version "2.4.20"
+        id("org.jetbrains.kotlin.jvm") version "2.4.20"
+        id("com.google.devtools.ksp") version "2.3.12"
         id("dev.rikka.tools.autoresconfig") version "1.2.2"
         id("dev.rikka.tools.materialthemebuilder") version "1.5.1"
         id("dev.rikka.tools.refine") version "4.4.0"
@@ -54,6 +55,10 @@ if (System.getenv("JITPACK") != "true") {
     include ':manager'
     include ':server'
     include ':assistant'
+    include ':ghostlock-app'
+    project(':ghostlock-app').projectDir = file('third_party/ghostlock/app')
+    include ':profile-core'
+    project(':profile-core').projectDir = file('third_party/ghostlock/profile-core')
 }
 def root = "api"
 

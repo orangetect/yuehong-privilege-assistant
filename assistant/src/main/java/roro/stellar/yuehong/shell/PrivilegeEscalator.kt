@@ -317,6 +317,10 @@ class PrivilegeEscalator(
         var failure: Throwable? = null
         var cachedScript: File? = null
         try {
+            val managerPackage = KernelSuManagerSelection.selectedPackage(appContext)
+            val manager = KernelSuManagerSelection.selectedManagerTarget(appContext)
+                ?.takeIf { it.packageName == managerPackage }
+                ?: throw IOException("No recognized ksud found for selected manager $managerPackage")
             cachedScript = prepareActivationScript()
             log("installing KernelSU jailbreak activation script")
             val installation = shell.installActivationScript(cachedScript, KERNELSU_SCRIPT_DESTINATION)
@@ -326,9 +330,13 @@ class PrivilegeEscalator(
             }
 
             log("running KernelSU activation script through temporary su")
-            val managerPackage = KernelSuManagerSelection.selectedPackage(appContext)
+            val ksudPath = manager.libKsudPath
             log("selected KernelSU manager package: $managerPackage")
+            log("selected KernelSU ksud path: ${ksudPath.ifBlank { "<not found>" }}")
             val activationCommand = buildString {
+                append("YHROOT_KSUD=")
+                append(shellQuote(ksudPath))
+                append(' ')
                 append("YHROOT_KSU_PACKAGE=")
                 append(shellQuote(managerPackage))
                 append(" /system/bin/sh '$KERNELSU_SCRIPT_DESTINATION'")
