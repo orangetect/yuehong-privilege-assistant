@@ -15,25 +15,17 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import roro.stellar.yuehong.BuildConfig
 import roro.stellar.yuehong.dfroot.DirtyFragVrActivity
-import roro.stellar.yuehong.shell.HttpStartupVerificationApi
 import roro.stellar.yuehong.shell.KernelSuManagerSelection
-import roro.stellar.yuehong.shell.StartupVerification
-import roro.stellar.yuehong.shell.StartupVerificationResult
 import com.ghostlock.app.ui.MainActivity as GhostlockMainActivity
 
 private enum class AppPage {
-    Announcement,
-    ChannelVerification,
     NecessaryPermissions,
     ModeSelection,
 }
@@ -43,11 +35,15 @@ fun StellarAssistantApp() {
     StellarTheme {
         val context = LocalContext.current
         BackHandler { (context as? Activity)?.moveTaskToBack(true) }
-        val startupVerificationApi = remember(context.applicationContext) {
-            HttpStartupVerificationApi(context.applicationContext)
+        var page by rememberSaveable {
+            mutableStateOf(
+                if (NecessaryPermissions.allGranted(context)) {
+                    AppPage.ModeSelection
+                } else {
+                    AppPage.NecessaryPermissions
+                },
+            )
         }
-        var page by rememberSaveable { mutableStateOf(AppPage.Announcement) }
-        var startupRefreshGeneration by rememberSaveable { mutableIntStateOf(0) }
         val dirtyFragVrPlatformAvailable = remember {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         }
@@ -123,38 +119,6 @@ fun StellarAssistantApp() {
             label = "app-page-transition",
         ) { activePage ->
             when (activePage) {
-                AppPage.Announcement -> AnnouncementGate(
-                    api = startupVerificationApi,
-                    refreshGeneration = startupRefreshGeneration,
-                    onContinue = { verification ->
-                        if (!verification.authorized) {
-                            page = AppPage.ChannelVerification
-                        } else if (NecessaryPermissions.allGranted(context)) {
-                            page = AppPage.ModeSelection
-                        } else {
-                            page = AppPage.NecessaryPermissions
-                        }
-                    },
-                    onRetry = { startupRefreshGeneration++ },
-                    onExit = { (context as? Activity)?.moveTaskToBack(true) },
-                )
-
-                AppPage.ChannelVerification -> ChannelVerificationScreen(
-                    api = startupVerificationApi,
-                    onVerified = {
-                        page = if (NecessaryPermissions.allGranted(context)) {
-                            AppPage.ModeSelection
-                        } else {
-                            AppPage.NecessaryPermissions
-                        }
-                    },
-                    onStartupInvalidated = {
-                        startupRefreshGeneration++
-                        page = AppPage.Announcement
-                    },
-                    onExit = { (context as? Activity)?.moveTaskToBack(true) },
-                )
-
                 AppPage.NecessaryPermissions -> NecessaryPermissionsScreen(
                     onGranted = { page = AppPage.ModeSelection },
                     onExit = { (context as? Activity)?.moveTaskToBack(true) },
@@ -168,45 +132,6 @@ fun StellarAssistantApp() {
                     onOpenVivoWired = ::openVivoWiredMode,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun AnnouncementGate(
-    api: HttpStartupVerificationApi,
-    refreshGeneration: Int,
-    onContinue: (StartupVerification) -> Unit,
-    onRetry: () -> Unit,
-    onExit: () -> Unit,
-) {
-    var verificationResult by remember { mutableStateOf<StartupVerificationResult?>(null) }
-
-    LaunchedEffect(api, refreshGeneration) {
-        verificationResult = null
-        verificationResult = api.verifyStartup()
-    }
-
-    val result = verificationResult
-    AnimatedContent(
-        targetState = result,
-        transitionSpec = {
-            fadeIn(tween(260, easing = FastOutSlowInEasing)) togetherWith
-                fadeOut(tween(180))
-        },
-        label = "announcement-loading-transition",
-    ) { loadedResult ->
-        if (loadedResult == null) {
-            AnnouncementLoadingScreen()
-        } else {
-            AnnouncementScreen(
-                result = loadedResult,
-                localVersion = BuildConfig.VERSION_NAME,
-                localVersionCode = BuildConfig.VERSION_CODE,
-                    onContinue = onContinue,
-                    onRetry = onRetry,
-                    onExit = onExit,
-            )
         }
     }
 }

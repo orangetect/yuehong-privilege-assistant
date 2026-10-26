@@ -11,7 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-// 与启动验证、频道验证和提权页使用同一套固定色板，避免动态取色造成页面割裂。
+// 与权限和提权页面使用同一套固定色板，避免动态取色造成页面割裂。
 private val LightColorScheme = lightColorScheme(
     primary = Color(0xFF4F46E5),
     onPrimary = Color.White,
