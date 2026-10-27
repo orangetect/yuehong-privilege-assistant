@@ -33,9 +33,6 @@ $nonEmptyExampleValues = Get-Content -LiteralPath $example | Where-Object {
     $_ -match '^\s*[^#!][^=]*=\s*\S+'
 }
 
-$announcement = Join-Path $Root 'assistant\src\main\java\roro\stellar\yuehong\ui\AnnouncementDialog.kt'
-$hardcodedUpdateUrl = Select-String -LiteralPath $announcement -Pattern 'UPDATE_URL\s*=\s*"https?://' -Quiet
-
 $textExtensions = @('.kt', '.java', '.gradle', '.properties', '.xml', '.json', '.md', '.txt', '.sh', '.ps1', '.toml', '.rs', '.c', '.h', '.yml', '.yaml')
 $textFiles = $allFiles | Where-Object { $_.Extension.ToLowerInvariant() -in $textExtensions }
 $privateMaterialHits = $textFiles | Select-String -Pattern @(
@@ -63,7 +60,6 @@ Write-Output "FILES_SCANNED=$($allFiles.Count)"
 Write-Output "FORBIDDEN_FILES=$($badFiles.Count)"
 Write-Output "FORBIDDEN_DIRECTORIES=$($badDirectories.Count)"
 Write-Output "NONEMPTY_EXAMPLE_VALUES=$($nonEmptyExampleValues.Count)"
-Write-Output "HARDCODED_UPDATE_URL=$hardcodedUpdateUrl"
 Write-Output "PRIVATE_MATERIAL_HITS=$($privateMaterialHits.Count)"
 Write-Output "PRIVATE_IDENTIFIER_HITS=$($privateIdentifierHits.Count)"
 Write-Output "MISSING_LICENSE_FILES=$($missingLicenses.Count)"
@@ -71,7 +67,6 @@ Write-Output "MISSING_LICENSE_FILES=$($missingLicenses.Count)"
 if ($badFiles.Count -gt 0 -or
     $badDirectories.Count -gt 0 -or
     $nonEmptyExampleValues.Count -gt 0 -or
-    $hardcodedUpdateUrl -or
     $privateMaterialHits.Count -gt 0 -or
     $privateIdentifierHits.Count -gt 0 -or
     $missingLicenses.Count -gt 0) {

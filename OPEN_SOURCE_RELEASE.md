@@ -4,10 +4,10 @@
 
 ## 已移除的私有内容
 
-- `server.properties` 及其中的运营域名、接口路径、模块标识、V2 公钥、key ID、频道链接和更新地址。
+- `server.properties` 及其中的运营域名、接口路径、模块标识、V2 公钥和 key ID。
 - `keystore.properties`、发行 JKS/KeyStore、证书私钥及签名口令。
 - APK、AAB、R8 mapping、Gradle/CMake/Rust 构建缓存、调试日志和 Codex 本地事务文件。
-- 公告页中原有的硬编码更新服务器地址；公开构建改从本地 `server.properties` 的 `updateUrl` 读取。
+- 启动版本/频道门禁已从公开源码当前版本移除。
 - 当前版本字段统一为根工程 `build.gradle` 中的 `yuehongVersionCode=164` 与 `yuehongVersionName=v1.6.4`；`manager` Manifest 和 `assistant` BuildConfig 均引用该版本源。
 
 ## 本地配置

@@ -10,7 +10,7 @@
 
 ## 运行流程
 
-1. 启动时验证服务端签名公告、客户端版本与频道授权。
+1. 启动时检查必要权限；权限齐全后进入提权模式选择页。
 2. 检查内置 Stellar Binder 和 `stellar` 权限。
 3. 服务未启动时进入应用内无线调试自激活页；配对、连接和服务启动均由内置 Stellar 组件完成。
 4. 服务已启动但权限未确认时，使用 Stellar 自身授权页完成显式授权。
@@ -24,7 +24,7 @@
 ## 源码结构
 
 ```text
-assistant/  月虹提权助手 UI、启动验证、本地载荷和提权业务
+assistant/  月虹提权助手 UI、本地载荷和提权业务
 manager/    Android 宿主、自激活界面、无线调试、授权、Binder 接收与 DirtyFrag VR 原生链
 server/     以 ADB shell 或 Root 身份运行的 Stellar 特权服务
 api/        随工程固定版本交付的 Stellar API、AIDL、Provider 与共享代码
@@ -51,11 +51,8 @@ LICENSES/   第三方许可证文本
 compatibilityEndpoint=
 moduleId=
 protocolV2Endpoint=
-channelEndpoint=
 protocolV2PublicKey=
 protocolV2KeyId=
-channelJoinUrl=
-updateUrl=
 ```
 
 `moduleId` 应填写为构建者自己服务端配置的模块 ID；示例文件不携带月虹正式服务的模块 ID 或其他运营配置。
