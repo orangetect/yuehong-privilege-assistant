@@ -22,6 +22,7 @@
 
 ## DirtyFrag VR native chain
 
+- DirtyFrag 上游：https://github.com/diabl0w/DFRoot（仓库标注 GPL-2.0）；其下游强化分支为 https://github.com/DONGDERS/DirtyFalg-vr，提权助手同步的是该 DirtyFrag VR 仓库提供的 v1.16-vr 源码，不是单独从 DFRoot 拉取的一份源码。
 - 上游：https://github.com/DONGDERS/DirtyFalg-vr
 - 同步版本：用户提供的 `DirtyFalg-vr-master.zip`，DirtyFrag `v1.16-vr`（46），ZIP SHA-256 `B6997E293DFCC2D9FF252FA1E202900880A01FB40631E755F4F4BCF3CDCF5BDA`。
 - 集成位置：`manager/src/main/jni/dfroot/` 和 `assistant/src/main/jni/vrext/`。管理器包名与识别器返回的 ksud 路径由助手直接传递；启动器不重新扫描管理器或重新定位 SO。
