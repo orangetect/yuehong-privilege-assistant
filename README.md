@@ -39,7 +39,7 @@ LICENSES/   第三方许可证文本
 - [Stellar](https://github.com/roro2239/Stellar)：内置的 Manager、Server 与核心服务框架。
 - [GhostLock-App](https://github.com/YuKongA/ghostlock-app)：嵌入助手 APK 的上游 GhostLock 应用界面、Native 核心、OTA 解析器和内核 profile。
 - [KSuRoot](https://github.com/hmascs/KSuRoot/)：APK 内置提权载荷来源。
-- [DirtyFrag VR](https://github.com/DONGDERS/DirtyFalg-vr)：DirtyFrag VR 原生提权链和 VR 探针处理来源；本工程集成用户提供的 v1.16-vr 源码。
+- [DirtyFrag VR](https://github.com/DONGDERS/DirtyFalg-vr)：DirtyFrag VR 原生提权链和 VR 探针处理来源；该项目自述为 [DFRoot](https://github.com/diabl0w/DFRoot) 的强化分支，本工程集成用户提供的 v1.16-vr 源码。
 
 其他第三方代码的许可证和归属见 [NOTICE.md](NOTICE.md) 与 [LICENSES](LICENSES)。
 

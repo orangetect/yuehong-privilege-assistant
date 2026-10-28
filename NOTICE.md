@@ -56,10 +56,11 @@ Stellar 保留的 Shizuku AIDL 与兼容层继续遵循 Apache-2.0。完整文�
 ## DirtyFrag VR native chain
 
 - Project: DirtyFrag VR
+- Upstream lineage: [DFRoot](https://github.com/diabl0w/DFRoot); DirtyFrag VR describes itself as a hardened fork of DFRoot.
 - Source: https://github.com/DONGDERS/DirtyFalg-vr
 - Synced source: user-provided `DirtyFalg-vr-master.zip` (DirtyFrag v1.16-vr, version code 46, SHA-256 `B6997E293DFCC2D9FF252FA1E202900880A01FB40631E755F4F4BCF3CDCF5BDA`)
 - Included files: `manager/src/main/jni/dfroot/` contains the DirtyFrag native chain and VR probe handling; `assistant/src/main/jni/vrext/` parses the offset from boot images and OTA payloads. The assistant passes the selected manager package and recognized ksud path directly to the mode.
 - Build status: all eight checked-in KMI modules contain the VR configuration marker and slot expected by `exp.c`, along with VR probe handling code. This confirms the packaged modules expose the VR configuration interface; compatibility still depends on the target device's KMI and requires device-level validation.
-- License status: `lkm/dfroot.c` declares GPL and `include.inc` retains an Odzhan BSD-style license header. The upstream repository does not expose one clear root-level LICENSE covering every file, so the remaining DirtyFrag files are retained with an explicit “upstream license pending further verification” note in `LICENSE_REVIEW.md`. These files are not relicensed as MPL-2.0.
+- License status: The DFRoot repository identifies its license as GPL-2.0. In the integrated DirtyFrag VR tree, `lkm/dfroot.c` declares GPL and `include.inc` retains an Odzhan BSD-style license header. The DirtyFrag VR repository does not expose one clear root-level LICENSE covering every file, so the remaining DirtyFrag files are retained with an explicit “upstream license pending further verification” note in `LICENSE_REVIEW.md`. These files are not relicensed as MPL-2.0.
 
 版权归各自贡献者所有。各文件继续适用其原有许可证；本说明不替代许可证正文。
